@@ -1,0 +1,292 @@
+diff --git a/arch/x86/include/asm/x64_hashtable.h b/arch/x86/include/asm/x64_hashtable.h
+new file mode 100644
+index 0000000..9cdae84
+--- /dev/null
++++ b/arch/x86/include/asm/x64_hashtable.h
+@@ -0,0 +1,285 @@
++/* SPDX-License-Identifier: GPL-2.0 */
++#ifndef _ASM_X86_X64_HASHTABLE_H
++#define _ASM_X86_X64_HASHTABLE_H
++
++#include <linux/types.h>
++#include <linux/kernel.h>
++#include <linux/rcupdate.h>
++#include <linux/slab.h>
++#include <linux/errno.h>
++#include <asm/processor.h>
++#include <asm/cmpxchg.h>
++
++#define X64_HASH_MAX_PROBE  4
++#define X64_HASH_EMPTY_SIG  0x00
++
++/**
++ * struct x64_bucket_slot - Cache-line aligned, flat hash map bucket
++ * @fingerprints: 7 separate 1-byte signature fingerprints for SWAR matching
++ * @flags:        Status and control configurations (e.g., resizing flags)
++ * @entries:      7 contiguous, RCU-safe data pointers packing the rest of the 64B line
++ */
++struct x64_bucket_slot {
++	u8 fingerprints[7];
++	u8 flags;
++	void __rcu *entries[7];
++} __aligned(64);
++
++/**
++ * struct x64_hashtable - Dynamically resizable top-level table container
++ * @buckets: Pointer to the cache-line aligned array of slots
++ * @bits:    Current capacity exponent (size = 1 << bits)
++ */
++struct x64_hashtable {
++	struct x64_bucket_slot __rcu *buckets;
++	unsigned int bits;
++};
++
++struct x64_insert_state {
++	void *obj;
++	u64 key;
++	u8 sig;
++	u8 psl;
++};
++
++/* Secondary fingerprint signature logic to distribute collision checks */
++static __always_inline u8 x64_key_signature(u64 key)
++{
++	u8 sig = (u8)((key ^ (key >> 8)) & 0xFF);
++	return sig == X64_HASH_EMPTY_SIG ? 0x01 : sig;
++}
++
++/**
++ * x64_hashtable_alloc - Allocate map with cacheline padding
++ */
++static inline struct x64_hashtable *x64_hashtable_alloc(unsigned int bits)
++{
++	struct x64_hashtable *table;
++	size_t size = sizeof(struct x64_bucket_slot) * (1U << bits);
++
++	table = kmalloc(sizeof(*table), GFP_KERNEL);
++	if (!table)
++		return NULL;
++
++	/* Allocate memory block preserving alignment requirements explicitly */
++	table->buckets = kzalloc(size, GFP_KERNEL | __GFP_ZERO);
++	if (!table->buckets) {
++		kfree(table);
++		return NULL;
++	}
++
++	table->bits = bits;
++	return table;
++}
++
++/**
++ * x64_table_lookup_probed - Highly parallel SWAR lookups via scalar registers
++ */
++static __always_inline void *x64_table_lookup_probed(struct x64_hashtable *table, u64 key)
++{
++	struct x64_bucket_slot *buckets = rcu_dereference_raw(table->buckets);
++	unsigned int bits = table->bits;
++	u32 ideal_index;
++	u32 mask = (1U << bits) - 1;
++	u8 target_sig = x64_key_signature(key);
++	u64 broad_sig = target_sig * 0x0101010101010101ULL;
++	u32 target_index;
++	u8 psl;
++
++	asm volatile("crc32q %1, %0" : "=r" (ideal_index) : "rm" (key));
++	target_index = ideal_index & mask;
++
++	for (psl = 0; psl < X64_HASH_MAX_PROBE; psl++) {
++		struct x64_bucket_slot *bucket = &buckets[target_index];
++		u64 bucket_sigs;
++		u64 xor_res;
++		u64 match_mask;
++
++		prefetch(bucket);
++		bucket_sigs = *(u64 *)bucket->fingerprints;
++		xor_res = bucket_sigs ^ broad_sig;
++		match_mask = (xor_res - 0x0101010101010101ULL) & ~xor_res & 0x8080808080808080ULL;
++
++		while (match_mask) {
++			int slot_idx = __builtin_ctzll(match_mask) >> 3;
++			if (slot_idx >= 7)
++				break;
++
++			void *candidate = rcu_dereference_raw(bucket->entries[slot_idx]);
++			if (candidate && *(u64 *)candidate == key)
++				return candidate;
++
++			match_mask &= (match_mask - 1);
++		}
++
++		target_index = (target_index + 1) & mask;
++	}
++	return NULL;
++}
++
++/**
++ * x64_table_insert_internal - Fixed-size structural slot insertion utilizing Robin Hood allocation
++ */
++static __always_inline int x64_table_insert_internal(struct x64_bucket_slot *buckets,
++						     unsigned int bits,
++						     void *obj, u64 key)
++{
++	struct x64_insert_state curr = {
++		.obj = obj,
++		.key = key,
++		.sig = x64_key_signature(key),
++		.psl = 0
++	};
++	u32 ideal_index;
++	u32 mask = (1U << bits) - 1;
++	u32 target_index;
++	int i;
++
++	asm volatile("crc32q %1, %0" : "=r" (ideal_index) : "rm" (key));
++	target_index = ideal_index & mask;
++
++	for (; curr.psl < X64_HASH_MAX_PROBE; curr.psl++) {
++		struct x64_bucket_slot *bucket = &buckets[target_index];
++		prefetchw(bucket);
++
++		for (i = 0; i < 7; i++) {
++			u8 *slot_sig = &bucket->fingerprints[i];
++
++			if (*slot_sig == X64_HASH_EMPTY_SIG) {
++				rcu_assign_pointer(bucket->entries[i], curr.obj);
++				xchg(slot_sig, curr.sig);
++				return 0;
++			}
++
++			void *existing_obj = rcu_dereference_protected(bucket->entries[i], 1);
++			if (existing_obj) {
++				u64 existing_key = *(u64 *)existing_obj;
++				u32 existing_ideal;
++				asm volatile("crc32q %1, %0" : "=r" (existing_ideal) : "rm" (existing_key));
++
++				u8 existing_psl = (target_index - (existing_ideal & mask)) & mask;
++
++				if (curr.psl > existing_psl) {
++					struct x64_insert_state displaced_old = {
++						.obj = existing_obj,
++						.key = existing_key,
++						.sig = *slot_sig,
++						.psl = existing_psl
++					};
++
++					rcu_assign_pointer(bucket->entries[i], curr.obj);
++					xchg(slot_sig, curr.sig);
++
++					curr = displaced_old;
++					break;
++				}
++			}
++		}
++		target_index = (target_index + 1) & mask;
++	}
++
++	return -ENOSPC;
++}
++
++/**
++ * x64_hashtable_resize - Allocates double capacity map and migrates active pointers
++ */
++static inline int x64_hashtable_resize(struct x64_hashtable *table)
++{
++	unsigned int old_bits = table->bits;
++	unsigned int new_bits = old_bits + 1;
++	size_t new_size = sizeof(struct x64_bucket_slot) * (1U << new_bits);
++	struct x64_bucket_slot *new_buckets;
++	struct x64_bucket_slot *old_buckets = rcu_dereference_protected(table->buckets, 1);
++	u32 old_capacity = 1U << old_bits;
++	u32 b;
++	int i;
++
++	new_buckets = kzalloc(new_size, GFP_KERNEL | __GFP_ZERO);
++	if (!new_buckets)
++		return -ENOMEM;
++
++	/* Rehash all elements from old table structure into the expanded memory bounds */
++	for (b = 0; b < old_capacity; b++) {
++		struct x64_bucket_slot *old_bucket = &old_buckets[b];
++		for (i = 0; i < 7; i++) {
++			void *obj = rcu_dereference_protected(old_bucket->entries[i], 1);
++			if (obj) {
++				u64 key = *(u64 *)obj;
++				int ret = x64_table_insert_internal(new_buckets, new_bits, obj, key);
++				if (ret) {
++					/* Cascade safety fallback if scaling variance overflows constraints */
++					kzfree(new_buckets);
++					return -ENOSPC;
++				}
++			}
++		}
++	}
++
++	/* RCU boundary swap: safely switch the runtime lookup pointer structure */
++	rcu_assign_pointer(table->buckets, new_buckets);
++	table->bits = new_bits;
++
++	/* Enforce sync window wait loop before dropping prior storage segment */
++	synchronize_rcu();
++	kfree(old_buckets);
++
++	return 0;
++}
++
++/**
++ * x64_hashtable_insert - Thread-safe insertion with dynamic auto-resize coordination
++ */
++static inline int x64_hashtable_insert(struct x64_hashtable *table, void *obj, u64 key)
++{
++	struct x64_bucket_slot *buckets;
++	int ret;
++
++	while (1) {
++		buckets = rcu_dereference_protected(table->buckets, 1);
++		ret = x64_table_insert_internal(buckets, table->bits, obj, key);
++		if (ret != -ENOSPC)
++			return ret;
++
++		/* Auto-scale bounds when displacement chains fill up available line limits */
++		ret = x64_hashtable_resize(table);
++		if (ret)
++			return ret;
++	}
++}
++
++/**
++ * x64_hashtable_delete - Atomically invalidate explicit key indices
++ */
++static inline int x64_hashtable_delete(struct x64_hashtable *table, u64 key)
++{
++	struct x64_bucket_slot *buckets = rcu_dereference_protected(table->buckets, 1);
++	unsigned int bits = table->bits;
++	u32 ideal_index, target_index;
++	u32 mask = (1U << bits) - 1;
++	u8 target_sig = x64_key_signature(key);
++	u8 psl;
++	int i;
++
++	asm volatile("crc32q %1, %0" : "=r" (ideal_index) : "rm" (key));
++	target_index = ideal_index & mask;
++
++	for (psl = 0; psl < X64_HASH_MAX_PROBE; psl++) {
++		struct x64_bucket_slot *bucket = &buckets[target_index];
++
++		for (i = 0; i < 7; i++) {
++			if (bucket->fingerprints[i] == target_sig) {
++				void *obj = rcu_dereference_protected(bucket->entries[i], 1);
++				if (obj && *(u64 *)obj == key) {
++					xchg(&bucket->fingerprints[i], X64_HASH_EMPTY_SIG);
++					rcu_assign_pointer(bucket->entries[i], NULL);
++					return 0;
++				}
++			}
++		}
++		target_index = (target_index + 1) & mask;
++	}
++	return -ENOENT;
++}
++
++#endif /* _ASM_X86_X64_HASHTABLE_H */
++
