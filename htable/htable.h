@@ -73,7 +73,8 @@ void __htable_set_type_table(struct htable *table){
 	table->flags |= HTABLE_FLAGS_IS_TABLE;
 }
 
-
+void htable_init(struct *htable){}
+void htable_deinit(struct *htable){}
 
 
 //////////////////////////////////////////////////////////////////////////
@@ -147,8 +148,7 @@ void htable_remove_node(struct htable_node *node){
 	}
 }
 
-void htable_init(struct *htable){}
-void htable_deinit(struct *htable){}
+
 
 
 //////////////////////////////////////////////////////////////////////////
@@ -185,7 +185,7 @@ void htable_deinit(struct *htable){}
 #define hash_init(hashtable) __hash_init(hashtable)
 static inline void __hash_init(struct htable *htable)
 {
-	htable_init(*htable);
+	htable_init(htable);
 }
 
 #define hash_deinit(hashtable) __hash_deinit(hashtable)
