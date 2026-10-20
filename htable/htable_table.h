@@ -41,6 +41,15 @@ static inline int htable_table_init(struct htable_table *table)
 }
 
 /*
+ * Call only after users have stopped accessing the table and all entries
+ * have been removed. Use synchronize_rcu() before freeing removed nodes.
+ */
+static inline void htable_table_deinit(struct htable_table *table)
+{
+	rhashtable_destroy(&table->hash);
+}
+
+/*
  * The hash is the key, so duplicate hashes return -EEXIST. The table grows
  * automatically; callers must serialize operations on the same node.
  */
@@ -93,20 +102,7 @@ __htable_table_delete(struct htable_table *table,
 static inline int htable_table_delete(struct htable_table_node *node)
 {
 	struct htable_table *table = htable_table_get_by_node(node);
-
-	if (!table)
-		return -ENOENT;
-
 	return __htable_table_delete(table, node);
-}
-
-/*
- * Call only after users have stopped accessing the table and all entries
- * have been removed. Use synchronize_rcu() before freeing removed nodes.
- */
-static inline void htable_table_destroy(struct htable_table *table)
-{
-	rhashtable_destroy(&table->hash);
 }
 
 #endif /* _KMOD_htable_table_H */
