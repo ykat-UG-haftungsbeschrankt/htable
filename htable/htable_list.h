@@ -1,0 +1,107 @@
+/* SPDX-License-Identifier: GPL-2.0 */
+#ifndef _KMOD_htable_list_H
+#define _KMOD_htable_list_H
+
+#include <linux/container_of.h>
+
+/**
+ * struct htable_list - Predecessor chain with a sentinel
+ * @sentinel: Root node; its pprev is NULL
+ * @tail: Last entry, or NULL when the list is empty
+ *
+ * Entries must not already belong to a list, and all access must be externally
+ * synchronized. Traversal from an entry to its predecessor follows pprev.
+ */
+struct htable_list_node {
+	unsigned int hash;
+	struct htable_list_node *pprev;
+};
+
+struct htable_list {
+	struct htable_list_node sentinel;
+	struct htable_list_node *tail;
+};
+
+#define HTABLE_LIST_INIT {						\
+	.sentinel = { .pprev = NULL },					\
+	.tail = NULL,							\
+}
+
+void htable_list_init(struct htable_list *list){
+	*list = HTABLE_LIST_INIT;
+}
+
+static inline void htable_list_node_init(struct htable_list_node *node){
+	node->pprev = NULL;
+}
+
+/**
+ * htable_list_init - Initialize an empty sentinel list
+ * @list: List to initialize
+ */
+static inline void htable_list_init(
+	struct htable_list *list
+){
+	list->sentinel.pprev = NULL;
+	list->tail = NULL;
+}
+
+static inline void
+htable_list_add(
+	struct htable_list *list
+	, struct htable_list_node *node
+){
+	register struct htable_list_node *tail = list->tail;
+	node->pprev = likely(tail) ? tail : &list->sentinel;
+	list->tail = node;
+}
+
+static inline struct htable_list_node *
+htable_list_last(
+	struct htable_list *list
+){
+	return list->tail;
+}
+
+static inline struct htable_list *htable_list_get_by_node(
+	struct htable_list_node *node
+){
+	while (likely(node->pprev))
+		node = node->pprev;
+
+	return container_of(node, struct htable_list, sentinel);
+}
+
+static inline void
+__htable_list_delete(
+	struct htable_list *list
+	, struct htable_list_node *node
+){
+	struct htable_list_node *successor;
+
+	if (likely(list->tail != node)) {
+		/*
+		 * Links point toward the sentinel, so find the node whose
+		 * predecessor is being removed.
+		 */
+		successor = list->tail;
+		while (likely(successor->pprev != node))
+			successor = successor->pprev;
+		successor->pprev = node->pprev;
+	} else {
+		list->tail = likely(node->pprev != &list->sentinel) ?
+			node->pprev : NULL;
+	}
+
+	node->pprev = NULL;
+}
+
+static inline void
+htable_list_delete(
+	struct htable_list_node *node
+){
+	struct htable_list *list = htable_list_get_by_node(node);
+	__htable_list_delete(list, node);
+}
+
+#endif /* _KMOD_htable_list_H */

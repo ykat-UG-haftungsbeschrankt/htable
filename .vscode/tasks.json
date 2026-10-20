@@ -1,0 +1,104 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "htable-test: build",
+            "type": "shell",
+            "command": "make",
+            "args": ["htable-test"],
+            "problemMatcher": ["$gcc"]
+        },
+        {
+            "label": "swar_test: build",
+            "type": "shell",
+            "command": "cc",
+            "args": [
+                "-std=gnu11",
+                "-g",
+                "-O0",
+                "-Wall",
+                "-Wextra",
+                "-msse4.2",
+                "${workspaceFolder}/swar_test.c",
+                "-o",
+                "${workspaceFolder}/swar_test"
+            ],
+            "problemMatcher": ["$gcc"]
+        },
+        {
+            "label": "kmod: build",
+            "type": "shell",
+            "command": "make",
+            "args": ["all"],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": ["$gcc"],
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            }
+        },
+        {
+            "label": "kmod: clean",
+            "type": "shell",
+            "command": "make",
+            "args": ["clean"],
+            "problemMatcher": []
+        },
+        {
+            "label": "kmod: insert (insmod)",
+            "type": "shell",
+            "command": "make",
+            "args": ["insert"],
+            "dependsOn": "kmod: build",
+            "problemMatcher": []
+        },
+        {
+            "label": "kmod: remove (rmmod)",
+            "type": "shell",
+            "command": "make",
+            "args": ["remove"],
+            "problemMatcher": []
+        },
+        {
+            "label": "kmod: show dmesg log",
+            "type": "shell",
+            "command": "make",
+            "args": ["log"],
+            "problemMatcher": []
+        },
+        {
+            "label": "kmod: rebuild and reload",
+            "type": "shell",
+            "command": "make clean && make all && (sudo rmmod hello 2>/dev/null; sudo insmod hello.ko)",
+            "problemMatcher": ["$gcc"]
+        },
+        {
+            "label": "kmod: run hashtable benchmark",
+            "type": "shell",
+            "command": "make",
+            "args": ["bench", "NUM=${input:benchNumEntries}", "BITS=${input:benchHashBits}"],
+            "problemMatcher": ["$gcc"],
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            }
+        }
+    ],
+    "inputs": [
+        {
+            "id": "benchNumEntries",
+            "type": "promptString",
+            "description": "Number of hashtable entries to benchmark",
+            "default": "100000"
+        },
+        {
+            "id": "benchHashBits",
+            "type": "promptString",
+            "description": "log2 of number of hash buckets",
+            "default": "16"
+        }
+    ]
+}

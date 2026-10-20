@@ -1,0 +1,33 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug htable-test",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/htable-test/htable-test",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "miDebuggerPath": "/usr/bin/gdb",
+            "preLaunchTask": "htable-test: build"
+        },
+        {
+            "name": "Debug swar_test",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/swar_test",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": true,
+            "MIMode": "gdb",
+            "miDebuggerPath": "/usr/bin/gdb",
+            "preLaunchTask": "swar_test: build"
+        }
+    ]
+}

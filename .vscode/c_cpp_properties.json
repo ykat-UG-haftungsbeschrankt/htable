@@ -1,0 +1,22 @@
+{
+    "configurations": [
+        {
+            "name": "Linux Kernel Module",
+            "includePath": [
+                "${workspaceFolder}/**",
+                "/lib/modules/*/build/include/**",
+                "/lib/modules/*/build/arch/x86/include/**",
+                "/usr/src/linux-headers-*/include/**",
+                "/usr/src/linux-headers-*/arch/x86/include/**"
+            ],
+            "defines": [
+                "__KERNEL__",
+                "MODULE"
+            ],
+            "compilerPath": "/usr/bin/gcc",
+            "cStandard": "gnu11",
+            "intelliSenseMode": "linux-gcc-x64"
+        }
+    ],
+    "version": 4
+}
