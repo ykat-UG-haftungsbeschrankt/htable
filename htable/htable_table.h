@@ -1,4 +1,10 @@
-/* SPDX-License-Identifier: GPL-2.0 */
+/*
+ * Copyright (c) 2026 ykat UG (haftungsbeschraenkt) - All Rights Reserved
+ *
+ * Permission for non-commercial use is hereby granted,
+ * free of charge, without warranty of any kind.
+ */
+
 #ifndef _KMOD_htable_table_H
 #define _KMOD_htable_table_H
 
