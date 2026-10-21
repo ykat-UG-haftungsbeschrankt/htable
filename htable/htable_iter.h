@@ -1,137 +1,56 @@
-/**
- * htable_iter_init - Initialize an iterator for a table or one bucket
- * @iter: Iterator to initialize
- * @table: Table being traversed
- * @possible_only: Traverse only the bucket selected by @key
- * @key: Key used when @possible_only is true
- */
-static inline void htable_iter_init(struct htable_iter *iter,
-				    struct htable *table, bool possible_only,
-				    unsigned long key)
-{
-	iter->state = rcu_dereference_raw(table->state);
-	iter->next_link = NULL;
-	if (!iter->state) {
-		iter->bucket = 0;
-		iter->end_bucket = 0;
-		return;
-	}
+/* SPDX-License-Identifier: GPL-2.0 */
+#ifndef HTABLE_ITER_H
+#define HTABLE_ITER_H
 
-	if (possible_only) {
-		iter->bucket = htable_hash(key, iter->state->hash_bits);
-		iter->end_bucket = iter->bucket + 1;
-	} else {
-		iter->bucket = 0;
-		iter->end_bucket = iter->state->size;
-	}
+#include <stdbool.h>
+#include "htable_list_iter.h"
+#include "htable_multitable_iter.h"
+
+struct htable_iter {
+	union {
+		struct htable_list_iter list;
+		struct htable_multitable_iter table;
+	};
+	void *ptr;
+};
+
+void *htable_iter_get_first_match(struct htable *table, struct htable_iter *iter)
+{
+	if (htable_table_is_list(table))
+		return htable_list_iter_get_first_match(&iter->list);
+	else
+		return htable_multitable_iter_get_first_match(&iter->table);
 }
 
-static inline struct hlist_node *
-htable_iter_next(struct htable_iter *iter, unsigned int *bucket)
+struct htable_iter htable_iter_init(struct htable *table, size_t hash)
 {
-	while (iter->state && iter->bucket < iter->end_bucket) {
-		if (!iter->next_link) {
-			struct hlist_node *first = rcu_dereference_raw(
-				iter->state->buckets[iter->bucket].first);
+	struct htable_iter it;
+	if (htable_table_is_list(table))
+		it.list = htable_list_iter_init(table, hash);
+	else
+		it.table = htable_multitable_iter_init(table, hash);
 
-			if (!first) {
-				iter->bucket++;
-				continue;
-			}
-			iter->next_link =
-				hlist_entry(first, struct htable_link, bucket_node);
-		}
-
-		{
-			struct htable_link *link = iter->next_link;
-			struct hlist_node *next =
-				rcu_dereference_raw(link->bucket_node.next);
-
-			iter->next_link = next ?
-				hlist_entry(next, struct htable_link, bucket_node) :
-				NULL;
-			*bucket = iter->bucket;
-			return link->entry_node;
-		}
-	}
-
-	return NULL;
+	it.ptr = htable_iter_get_first_match(table, &it);
+	return it;
 }
 
-static inline struct hlist_node *
-htable_iter_next_safe(struct htable_iter *iter, unsigned int *bucket,
-		      struct hlist_node **tmp)
+void *htable_iter_get_current_match(struct htable *table, struct htable_iter *iter)
 {
-	struct hlist_node *node = htable_iter_next(iter, bucket);
-
-	*tmp = iter->next_link ? iter->next_link->entry_node : NULL;
-	return node;
+	return iter->ptr;
 }
 
-/* Iteration requires an RCU read lock or external exclusion from writers. */
-#define __htable_for_each(name, bucket, obj, member, possible, key)	\
-	for (struct htable_iter __iter,					\
-	     *__iter_once = (htable_iter_init(&__iter, &name##_htable,	\
-					 possible, (unsigned long)(key)),	\
-			     &__iter);					\
-	     __iter_once; __iter_once = NULL)				\
-		for (struct hlist_node *__node =				\
-			     htable_iter_next(&__iter, &(bucket));		\
-		     __node && ((obj) = container_of(__node, typeof(*(obj)),	\
-						       member), 1);	\
-		     __node = htable_iter_next(&__iter, &(bucket)))
+void htable_iter_get_next_match(struct htable *table, struct htable_iter *iter)
+{
+	if (htable_table_is_list(table))
+		iter->ptr = htable_list_iter_get_next_match(&iter->list);
+	else
+		iter->ptr = htable_multitable_iter_get_next_match(&iter->table);
+}
 
-#define hash_for_each(name, bucket, obj, member) \
-	__htable_for_each(name, bucket, obj, member, false, 0)
-#define hash_for_each_rcu(name, bucket, obj, member) \
-	__htable_for_each(name, bucket, obj, member, false, 0)
-#define hash_for_each_safe(name, bucket, tmp, obj, member)		\
-	for (struct htable_iter __iter,					\
-	     *__iter_once = (htable_iter_init(&__iter, &name##_htable,	\
-					 false, 0), &__iter);		\
-	     __iter_once; __iter_once = NULL)				\
-		for (struct hlist_node *__node =				\
-			     htable_iter_next_safe(&__iter, &(bucket),	\
-						   &(tmp));		\
-		     __node && ((obj) = container_of(__node,		\
-						      typeof(*(obj)),	\
-						      member), 1);	\
-		     __node = htable_iter_next_safe(&__iter, &(bucket),	\
-						    &(tmp)))
-#define hash_for_each_possible(name, obj, member, key)			\
-	for (struct htable_iter __iter,					\
-	     *__iter_once = (htable_iter_init(&__iter, &name##_htable,	\
-					 true, (unsigned long)(key)),		\
-			     &__iter);					\
-	     __iter_once; __iter_once = NULL)				\
-		for (unsigned int __bucket = 0; __bucket == 0; __bucket++)	\
-			for (struct hlist_node *__node =			\
-				     htable_iter_next(&__iter, &__bucket);	\
-			     __node && ((obj) = container_of(__node,		\
-							      typeof(*(obj)),	\
-							      member), 1);	\
-			     __node = htable_iter_next(&__iter, &__bucket))
+#define htable_for_each(table,hash,ptr) \
+	for(\
+		struct htable_iter it = htable_iter_init(table, hash)\
+		;NULL != (ptr = htable_iter_get_current_match(table,&it))\
+		;htable_iter_get_next_match(table,&it))
 
-#define hash_for_each_possible_rcu(name, obj, member, key, cond...)	\
-	hash_for_each_possible(name, obj, member, key)
-#define hash_for_each_possible_rcu_notrace(name, obj, member, key)	\
-	hash_for_each_possible(name, obj, member, key)
-#define hash_for_each_possible_safe(name, obj, tmp, member, key)	\
-	for (struct htable_iter __iter,					\
-	     *__iter_once = (htable_iter_init(&__iter, &name##_htable,	\
-					 true, (unsigned long)(key)),	\
-			     &__iter);					\
-	     __iter_once; __iter_once = NULL)				\
-		for (unsigned int __bucket = 0; __bucket == 0; __bucket++)	\
-			for (struct hlist_node *__node =			\
-				     htable_iter_next_safe(&__iter,		\
-							   &__bucket,	\
-							   &(tmp));	\
-			     __node && ((obj) = container_of(__node,		\
-							      typeof(*(obj)),	\
-							      member), 1);	\
-			     __node = htable_iter_next_safe(&__iter,		\
-							    &__bucket,	\
-							    &(tmp)))
-
-#endif /* _KMOD_HTABLE_H */
+#endif

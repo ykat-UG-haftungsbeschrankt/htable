@@ -3,34 +3,34 @@
 #include <string.h>
 #include <stdint.h>
 #include <stddef.h>
+#include <stdbool.h>
+
+#ifndef HTABLE_MULTITABLE_H
+#define HTABLE_MULTITABLE_H
+
+typedef uint8_t u8;
+typedef uint32_t u32;
+typedef uint64_t u64;
+
+#include "swar_common.h"
 
 #define NUM_LEVELS 3
 #define BUCKET_CAPACITY 4
 #define EMPTY_METADATA 0x00
 
-/* Simple MurmurHash3-inspired 32-bit mix for ANSI C string keys */
-uint32_t hash_key(const char *key) {
-    uint32_t h = 0x811c9dc5;
-    while (*key) {
-        h ^= (uint32_t)(*key++);
-        h *= 0x01000193;
-    }
-    return h;
-}
-
 /* Derives an 8-bit non-zero signature tag for the Filtered layer */
-uint8_t generate_filter_tag(uint32_t hash) {
+static inline uint8_t generate_filter_tag(uint32_t hash) {
     uint8_t tag = (uint8_t)(hash & 0xFF);
     return (tag == EMPTY_METADATA) ? 0xAA : tag; 
 }
 
 typedef struct {
-    char *key;
-    int value;
-} KeyValueSlot;
+    struct   htable_list list;
+    uint32_t hash;
+} PointerHashSlot;
 
 typedef struct {
-    KeyValueSlot slots[BUCKET_CAPACITY];
+    PointerHashSlot slots[BUCKET_CAPACITY];
 } Bucket;
 
 typedef struct {
@@ -44,8 +44,18 @@ typedef struct {
     max_align_t storage[];
 } FilteredMultiTable;
 
+static inline uint32_t multitable_tag_matches(const TableLevel *level,
+                                              size_t bucket_idx, uint8_t tag) {
+    uint32_t packed_tags;
+    size_t filter_offset = bucket_idx * BUCKET_CAPACITY;
+
+    memcpy(&packed_tags, level->filter_tags + filter_offset,
+           sizeof(packed_tags));
+    return (uint32_t)swar_match_u8(packed_tags, tag, BUCKET_CAPACITY);
+}
+
 /* Memory Allocation & Initialization */
-FilteredMultiTable* multitable_create(size_t base_buckets) {
+static inline FilteredMultiTable* multitable_create(size_t base_buckets) {
     size_t bucket_counts[NUM_LEVELS];
     size_t bucket_bytes = 0;
     size_t tag_bytes = 0;
@@ -112,24 +122,25 @@ FilteredMultiTable* multitable_create(size_t base_buckets) {
     return mt;
 }
 
-/* Insertion Algorithm: Try to place in Level 0, cascade downward on conflict */
-int multitable_insert(FilteredMultiTable *mt, const char *key, int value) {
-    uint32_t hash = hash_key(key);
+/* The table stores borrowed pointers; their owners manage pointed-to memory. */
+static inline int multitable_insert(FilteredMultiTable *mt,
+                                    const void *key_ptr, uint32_t hash) {
     uint8_t tag = generate_filter_tag(hash);
     int lvl, s;
 
-    /* Update an existing key before using any newly available slot. */
+    /* Avoid storing the same pointer/hash pair more than once. */
     for (lvl = 0; lvl < NUM_LEVELS; lvl++) {
         TableLevel *level = &mt->levels[lvl];
         size_t bucket_idx = hash % level->num_buckets;
         Bucket *b = &level->buckets[bucket_idx];
-        size_t filter_offset = bucket_idx * BUCKET_CAPACITY;
+        uint32_t matching_slots =
+            multitable_tag_matches(level, bucket_idx, tag);
 
-        for (s = 0; s < BUCKET_CAPACITY; s++) {
-            uint8_t current_tag = level->filter_tags[filter_offset + s];
-
-            if (current_tag == tag && b->slots[s].key != NULL && strcmp(b->slots[s].key, key) == 0) {
-                b->slots[s].value = value; /* Key already exists, update value */
+        while (matching_slots != 0) {
+            s = __builtin_ctz(matching_slots) >> 3;
+            matching_slots &= matching_slots - 1;
+            if (b->slots[s].hash == hash &&
+                b->slots[s].key_ptr == key_ptr) {
                 return 1;
             }
         }
@@ -139,27 +150,23 @@ int multitable_insert(FilteredMultiTable *mt, const char *key, int value) {
         TableLevel *level = &mt->levels[lvl];
         size_t bucket_idx = hash % level->num_buckets;
         Bucket *b = &level->buckets[bucket_idx];
-        size_t filter_offset = bucket_idx * BUCKET_CAPACITY;
+        uint32_t empty_slots =
+            multitable_tag_matches(level, bucket_idx, EMPTY_METADATA);
 
-        for (s = 0; s < BUCKET_CAPACITY; s++) {
-            uint8_t current_tag = level->filter_tags[filter_offset + s];
-            if (current_tag == EMPTY_METADATA) {
-                /* Empty slot found: claim it */
-                b->slots[s].key = malloc(strlen(key) + 1);
-                strcpy(b->slots[s].key, key);
-                b->slots[s].value = value;
-                level->filter_tags[filter_offset + s] = tag; /* Arm the 8-bit filter */
-                return 1; 
-            }
+        if (empty_slots != 0) {
+            s = __builtin_ctz(empty_slots) >> 3;
+            b->slots[s].key_ptr = key_ptr;
+            b->slots[s].hash = hash;
+            level->filter_tags[bucket_idx * BUCKET_CAPACITY + s] = tag;
+            return 1;
         }
         /* Bucket is saturated at this level; the key falls through to the next level array */
     }
     return 0; /* All levels exhausted (Capacity Exception / Resize Trigger) */
 }
 
-/* Delete a key and release its string storage. */
-int multitable_delete(FilteredMultiTable *mt, const char *key) {
-    uint32_t hash = hash_key(key);
+static inline int multitable_delete(FilteredMultiTable *mt,
+                                    const void *key_ptr, uint32_t hash) {
     uint8_t tag = generate_filter_tag(hash);
     int lvl, s;
 
@@ -167,16 +174,18 @@ int multitable_delete(FilteredMultiTable *mt, const char *key) {
         TableLevel *level = &mt->levels[lvl];
         size_t bucket_idx = hash % level->num_buckets;
         Bucket *b = &level->buckets[bucket_idx];
-        size_t filter_offset = bucket_idx * BUCKET_CAPACITY;
+        uint32_t matching_slots =
+            multitable_tag_matches(level, bucket_idx, tag);
 
-        for (s = 0; s < BUCKET_CAPACITY; s++) {
-            if (level->filter_tags[filter_offset + s] == tag &&
-                b->slots[s].key != NULL &&
-                strcmp(b->slots[s].key, key) == 0) {
-                free(b->slots[s].key);
-                b->slots[s].key = NULL;
-                b->slots[s].value = 0;
-                level->filter_tags[filter_offset + s] = EMPTY_METADATA;
+        while (matching_slots != 0) {
+            s = __builtin_ctz(matching_slots) >> 3;
+            matching_slots &= matching_slots - 1;
+            if (b->slots[s].hash == hash &&
+                b->slots[s].key_ptr == key_ptr) {
+                b->slots[s].key_ptr = NULL;
+                b->slots[s].hash = 0;
+                level->filter_tags[bucket_idx * BUCKET_CAPACITY + s] =
+                    EMPTY_METADATA;
                 return 1;
             }
         }
@@ -184,9 +193,8 @@ int multitable_delete(FilteredMultiTable *mt, const char *key) {
     return 0;
 }
 
-/* Lookup Algorithm: Leverage the 8-bit filter tags to skip unneeded string matches */
-int multitable_get(FilteredMultiTable *mt, const char *key, int *out_value) {
-    uint32_t hash = hash_key(key);
+static inline bool multitable_has(FilteredMultiTable *mt,
+                                  const void *key_ptr, uint32_t hash) {
     uint8_t tag = generate_filter_tag(hash);
     int lvl, s;
 
@@ -194,86 +202,71 @@ int multitable_get(FilteredMultiTable *mt, const char *key, int *out_value) {
         TableLevel *level = &mt->levels[lvl];
         size_t bucket_idx = hash % level->num_buckets;
         Bucket *b = &level->buckets[bucket_idx];
-        size_t filter_offset = bucket_idx * BUCKET_CAPACITY;
+        uint32_t matching_slots =
+            multitable_tag_matches(level, bucket_idx, tag);
 
-        for (s = 0; s < BUCKET_CAPACITY; s++) {
-            uint8_t current_tag = level->filter_tags[filter_offset + s];
-
-            /* FAST PATH FILTER CHECK: If metadata doesn't match, instantly pass */
-            if (current_tag == EMPTY_METADATA) {
-                continue; 
-            }
-            if (current_tag == tag) {
-                /* SLOW PATH: Resolve deep comparison only if the filter tag passes */
-                if (b->slots[s].key != NULL && strcmp(b->slots[s].key, key) == 0) {
-                    *out_value = b->slots[s].value;
-                    return 1; /* Key found */
-                }
+        while (matching_slots != 0) {
+            s = __builtin_ctz(matching_slots) >> 3;
+            matching_slots &= matching_slots - 1;
+            if (b->slots[s].hash == hash &&
+                b->slots[s].key_ptr == key_ptr) {
+                return 1;
             }
         }
     }
-    return 0; /* Key completely missing (Fast negative lookup) */
+    return 0;
 }
 
-/* Memory Deallocation */
-void multitable_free(FilteredMultiTable *mt) {
-    int lvl, s;
-    size_t b;
-    if (mt == NULL) {
-        return;
-    }
-
-    for (lvl = 0; lvl < NUM_LEVELS; lvl++) {
-        TableLevel *level = &mt->levels[lvl];
-        for (b = 0; b < level->num_buckets; b++) {
-            for (s = 0; s < BUCKET_CAPACITY; s++) {
-                if (level->buckets[b].slots[s].key != NULL) {
-                    free(level->buckets[b].slots[s].key);
-                }
-            }
-        }
-    }
+/* The table owns its backing allocation, not the pointed-to keys. */
+static inline void multitable_free(FilteredMultiTable *mt) {
     free(mt);
 }
 
+#ifdef HTABLE_MULTITABLE_TEST_MAIN
 /* Verification Runner */
 int main(void) {
     FilteredMultiTable *mt = multitable_create(8); /* Init Level 0 with 8 buckets */
-    int retrieved_value = 0;
+    int key_objects[5] = { 0 };
+    const uint32_t hashes[5] = {
+        0x12345611, 0x12345611, 0x12345711, 0x76543222, 0xabcdef33
+    };
 
     if (mt == NULL) {
         fprintf(stderr, "Failed to allocate multitable.\n");
         return 1;
     }
 
-    printf("Inserting Key-Value Pairs...\n");
-    multitable_insert(mt, "user_id_102", 9942);
-    multitable_insert(mt, "session_token", 5511);
-    multitable_insert(mt, "api_key", 8810);
+    printf("Inserting pointer/hash pairs...\n");
+    multitable_insert(mt, &key_objects[0], hashes[0]);
+    multitable_insert(mt, &key_objects[1], hashes[1]);
+    multitable_insert(mt, &key_objects[2], hashes[2]);
 
-    /* Test Hit (Positive Lookup) */
-    if (multitable_get(mt, "session_token", &retrieved_value)) {
-        printf("Hit Success! session_token = %d\n", retrieved_value);
+    if (multitable_has(mt, &key_objects[1], hashes[1])) {
+        printf("Hit Success! Pointer and hash matched.\n");
     } else {
         printf("Hit Failed!\n");
     }
 
-    /* Test Miss (Negative Lookup utilizing Fast Byte Filters) */
-    if (multitable_get(mt, "invalid_key", &retrieved_value)) {
-        printf("Found unexpected key!\n");
-    } else {
-        printf("Miss Success! 'invalid_key' was quickly dismissed by the filters.\n");
+    if (multitable_has(mt, &key_objects[1], hashes[2])) {
+        fprintf(stderr, "A different hash unexpectedly matched.\n");
+        multitable_free(mt);
+        return 1;
+    }
+    if (multitable_has(mt, &key_objects[3], hashes[3])) {
+        fprintf(stderr, "An uninserted pointer unexpectedly matched.\n");
+        multitable_free(mt);
+        return 1;
     }
 
-    if (!multitable_delete(mt, "session_token") ||
-        multitable_get(mt, "session_token", &retrieved_value)) {
+    if (!multitable_delete(mt, &key_objects[1], hashes[1]) ||
+        multitable_has(mt, &key_objects[1], hashes[1])) {
         fprintf(stderr, "Delete verification failed.\n");
         multitable_free(mt);
         return 1;
     }
 
-    if (multitable_delete(mt, "session_token")) {
-        fprintf(stderr, "Deleting a missing key unexpectedly succeeded.\n");
+    if (multitable_delete(mt, &key_objects[1], hashes[1])) {
+        fprintf(stderr, "Deleting a missing pointer/hash pair unexpectedly succeeded.\n");
         multitable_free(mt);
         return 1;
     }
@@ -282,21 +275,23 @@ int main(void) {
 
     mt = multitable_create(1);
     if (mt == NULL ||
-        !multitable_insert(mt, "collision-1", 1) ||
-        !multitable_insert(mt, "collision-2", 2) ||
-        !multitable_insert(mt, "collision-3", 3) ||
-        !multitable_insert(mt, "collision-4", 4) ||
-        !multitable_insert(mt, "overflow-key", 5) ||
-        !multitable_delete(mt, "collision-1") ||
-        !multitable_insert(mt, "overflow-key", 6) ||
-        !multitable_get(mt, "overflow-key", &retrieved_value) ||
-        retrieved_value != 6 ||
-        !multitable_delete(mt, "overflow-key") ||
-        multitable_get(mt, "overflow-key", &retrieved_value)) {
-        fprintf(stderr, "Cascaded delete/reinsert verification failed.\n");
+        !multitable_insert(mt, &key_objects[0], 0x11) ||
+        !multitable_insert(mt, &key_objects[1], 0x11) ||
+        !multitable_insert(mt, &key_objects[2], 0x111) ||
+        !multitable_insert(mt, &key_objects[3], 0x211) ||
+        !multitable_insert(mt, &key_objects[4], 0x311) ||
+        !multitable_delete(mt, &key_objects[0], 0x11) ||
+        !multitable_insert(mt, &key_objects[4], 0x311) ||
+        !multitable_has(mt, &key_objects[4], 0x311) ||
+        !multitable_delete(mt, &key_objects[4], 0x311) ||
+        multitable_has(mt, &key_objects[4], 0x311)) {
+        fprintf(stderr, "Cascaded pointer/hash verification failed.\n");
         multitable_free(mt);
         return 1;
     }
     multitable_free(mt);
     return 0;
 }
+#endif
+
+#endif /* HTABLE_MULTITABLE_H */

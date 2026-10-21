@@ -18,7 +18,10 @@ MOD ?= hello
 all:
 	$(MAKE) -C $(KDIR) M=$(PWD) modules
 
-htable-test: htable-test/main.c htable/htable_list.h tests/include/linux/container_of.h
+htable-test: htable-test/main.c htable/htable_list.h htable/htable_iter.h \
+		htable/htable_list_iter.h htable/htable_multitable_iter.h \
+		htable/htable_multitable.h htable/swar_common.h \
+		tests/include/linux/container_of.h
 	$(CC) $(HTABLE_TEST_CFLAGS) -I. -Itests/include $< -o htable-test/htable-test
 
 clean:

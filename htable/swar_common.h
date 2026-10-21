@@ -4,6 +4,10 @@
 
 #include <linux/types.h>
 
+#ifndef __always_inline
+#define __always_inline inline __attribute__((always_inline))
+#endif
+
 #define SWAR_HASH_EMPTY_SIG 0x00
 #define SWAR_SLOT_COUNT 7
 

@@ -27,10 +27,6 @@ struct htable_list {
 	.tail = NULL,							\
 }
 
-void htable_list_init(struct htable_list *list){
-	*list = HTABLE_LIST_INIT;
-}
-
 static inline void htable_list_node_init(struct htable_list_node *node){
 	node->pprev = NULL;
 }
@@ -102,6 +98,50 @@ htable_list_delete(
 ){
 	struct htable_list *list = htable_list_get_by_node(node);
 	__htable_list_delete(list, node);
+}
+
+static inline bool
+htable_list_has(
+	struct htable_list *list,
+	htable_hash_t hash
+){
+	struct htable_list_node *node = list->tail;
+	while (likely(node != &list->sentinel)) {
+		if (node->hash == hash)
+			return true;
+		node = node->pprev;
+	}
+	return false;
+}
+
+static inline struct htable_list_node *
+htable_list_get_first_match(
+	struct htable_list *list
+	,htable_hash_t hash
+){
+	struct htable_list_node *current = list->tail;
+	while (likely(current != &list->sentinel)) {
+		if (current->hash == hash)
+			return current;
+		current = current->pprev;
+	}
+	return NULL;
+}
+
+static inline struct htable_list_node *
+htable_list_get_next_match(
+	struct htable_list_node *node
+	,htable_hash_t hash
+){
+	if(node){
+		struct htable_list_node *current = node->pprev;
+		while (likely(current != &htable_list_get_by_node(node)->sentinel)) {
+			if (current->hash == hash)
+				return current;
+			current = current->pprev;
+		}
+	}
+	return NULL;
 }
 
 #endif /* _KMOD_htable_list_H */
