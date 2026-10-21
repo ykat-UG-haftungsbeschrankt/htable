@@ -8,8 +8,6 @@
 #ifndef HTABLE_SWAR32_H
 #define HTABLE_SWAR32_H
 
-#include "swar_common.h"
-
 /**
  * swar_get_hash32 - Calculate a CRC32C hash from a 32-bit key
  * @key: Key used as both the CRC32C seed and input value
@@ -25,7 +23,7 @@ static __always_inline swar_hash_t swar_get_hash32(u32 key)
  * @key: Hash whose low seven bits contain the fingerprint
  * @returns: Hash shifted right by seven bits
  */
-static __always_inline swar_bucket_t swar_get_bucket32(u32 key)
+static __always_inline swar_bucket_t swar_get_bucket32(swar_hash_t key)
 {
 	return key >> 7;
 }
@@ -35,7 +33,7 @@ static __always_inline swar_bucket_t swar_get_bucket32(u32 key)
  * @key: Hash containing the fingerprint in its low seven bits
  * @returns: Low seven bits of @key
  */
-static __always_inline swar_fingerprint_t swar_get_key32(u32 key)
+static __always_inline swar_fingerprint_t swar_get_key32(swar_hash_t key)
 {
 	return key & 0x7F;
 }

@@ -31,39 +31,6 @@ static __always_inline swar_hash_t swar_get_hash128(swar_u128_t key)
 }
 
 /**
- * swar_get_bucket128 - Remove the seven fingerprint bits from a 128-bit hash
- * @key: Hash whose low seven bits contain the fingerprint
- * @returns: Hash shifted right by seven bits
- */
-static __always_inline swar_u128_t swar_get_bucket128(swar_u128_t key)
-{
-#if SWAR_HAS_U128
-	return key >> 7;
-#else
-	swar_u128_t bucket = {
-		.low = (key.low >> 7) | (key.high << 57),
-		.high = key.high >> 7,
-	};
-
-	return bucket;
-#endif
-}
-
-/**
- * swar_get_key128 - Extract the fingerprint from a 128-bit hash
- * @key: Hash containing the fingerprint in its low seven bits
- * @returns: Low seven bits of @key
- */
-static __always_inline swar_fingerprint_t swar_get_key128(swar_u128_t key)
-{
-#if SWAR_HAS_U128
-	return key & 0x7F;
-#else
-	return key.low & 0x7F;
-#endif
-}
-
-/**
  * swar_match128 - Find matching bytes in a 128-bit value
  * @values: Sixteen packed bytes
  * @target: Byte value to match
@@ -83,8 +50,8 @@ static __always_inline swar_u128_t swar_match128(swar_u128_t values, u8 target)
 	low = values.low;
 	high = values.high;
 #endif
-	low_matches = swar_match_u8x8(low, target);
-	high_matches = swar_match_u8x8(high, target);
+	low_matches = swar_match64(low, target);
+	high_matches = swar_match64(high, target);
 
 #if SWAR_HAS_U128
 	return ((swar_u8x16_t)high_matches << 64) | low_matches;

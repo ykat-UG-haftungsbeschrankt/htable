@@ -8,8 +8,6 @@
 #ifndef HTABLE_SWAR64_H
 #define HTABLE_SWAR64_H
 
-#include "swar_common.h"
-
 /**
  * swar_get_hash64 - Calculate a CRC32C hash from a 64-bit key
  * @key: Key used as both the CRC32C seed and input value
@@ -18,26 +16,6 @@
 static __always_inline swar_hash_t swar_get_hash64(u64 key)
 {
 	return _mm_crc32_u64(key, key);
-}
-
-/**
- * swar_get_bucket64 - Remove the seven fingerprint bits from a 64-bit hash
- * @key: Hash whose low seven bits contain the fingerprint
- * @returns: Hash shifted right by seven bits
- */
-static __always_inline u64 swar_get_bucket64(u64 key)
-{
-	return key >> 7;
-}
-
-/**
- * swar_get_key64 - Extract the fingerprint from a 64-bit hash
- * @key: Hash containing the fingerprint in its low seven bits
- * @returns: Low seven bits of @key
- */
-static __always_inline swar_fingerprint_t swar_get_key64(u64 key)
-{
-	return key & 0x7F;
 }
 
 /**
