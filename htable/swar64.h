@@ -103,31 +103,4 @@ static __always_inline swar_slot_offset_t swar_get_count_zero64(u64 values,
 	return 8 - swar_get_count_set64(values, pattern);
 }
 
-/**
- * swar_get_count_u8x8 - Count occupied slots in seven packed slots
- * @values: Packed slot bytes; only the seven low-order bytes are slots
- * @returns: Number of non-empty slots, from zero through SWAR_SLOT_COUNT
- */
-static __always_inline swar_slot_offset_t swar_get_count_u8x8(swar_slots_t values)
-{
-	swar_slots_t empty_mask =
-		swar_match_u8x7(values, SWAR_HASH_EMPTY_SIG);
-
-	return SWAR_SLOT_COUNT - __builtin_popcountll(empty_mask);
-}
-
-/**
- * swar_find_empty_index - Find the first empty slot in seven packed slots
- * @values: Packed slot bytes; only the seven low-order bytes are slots
- * @returns: First empty slot index, or SWAR_SLOT_COUNT if all slots are
- *           occupied
- */
-static __always_inline swar_slot_offset_t swar_find_empty_index(swar_slots_t values)
-{
-	u64 empty_mask = swar_match_u8x7(values, SWAR_HASH_EMPTY_SIG);
-
-	return empty_mask ? __builtin_ctzll(empty_mask) >> 3 :
-			    SWAR_SLOT_COUNT;
-}
-
 #endif

@@ -71,7 +71,33 @@ static __always_inline swar_fingerprint_t swar_get_key128(swar_u128_t key)
  */
 static __always_inline swar_u128_t swar_match128(swar_u128_t values, u8 target)
 {
-	return swar_match_u8x16(values, target);
+	u64 low;
+	u64 high;
+	u64 low_matches;
+	u64 high_matches;
+
+#if SWAR_HAS_U128
+	low = (u64)values;
+	high = (u64)(values >> 64);
+#else
+	low = values.low;
+	high = values.high;
+#endif
+	low_matches = swar_match_u8x8(low, target);
+	high_matches = swar_match_u8x8(high, target);
+
+#if SWAR_HAS_U128
+	return ((swar_u8x16_t)high_matches << 64) | low_matches;
+#else
+	{
+		swar_u8x16_t matches = {
+			.low = low_matches,
+			.high = high_matches,
+		};
+
+		return matches;
+	}
+#endif
 }
 
 /**

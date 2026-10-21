@@ -29,11 +29,11 @@ static inline bool htable_multitable_iter_next_impl(struct htable_iter *base,
 	struct htable_multitable_iter *iter =
 		container_of(base, struct htable_multitable_iter, base);
 
-	while (iter->level < NUM_LEVELS) {
+	while (iter->level < iter->table->num_levels) {
 		const TableLevel *level = &iter->table->levels[iter->level];
 
 		while (iter->bucket < level->num_buckets) {
-			while (iter->slot < BUCKET_CAPACITY ||
+			while (iter->slot < iter->table->bucket_capacity ||
 			       iter->next_node != NULL) {
 				if (iter->next_node != NULL) {
 					const struct htable_list_node *node =
@@ -49,14 +49,15 @@ static inline bool htable_multitable_iter_next_impl(struct htable_iter *base,
 				}
 
 				size_t slot = iter->slot++;
-				size_t index = iter->bucket * BUCKET_CAPACITY + slot;
+				size_t index =
+					iter->bucket * iter->table->bucket_capacity +
+					slot;
 
 				if (level->filter_tags[index] == EMPTY_METADATA)
 					continue;
 
 				const struct htable_list *list =
-					&level->buckets[iter->bucket]
-						 .slots[slot].list;
+					&level->slots[index].list;
 
 				iter->sentinel = &list->sentinel;
 				iter->next_node = list->tail;

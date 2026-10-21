@@ -121,7 +121,8 @@ static void test_list_iterator(void)
 
 static void test_multitable_iterator(void)
 {
-	FilteredMultiTable *table = multitable_create(1);
+	FilteredMultiTable *table =
+		multitable_create(5, 16, 0.75, 1.0 / 1024.0);
 	struct htable_multitable_iter iter;
 	struct test_entry entries[5];
 	const void *item;
@@ -158,50 +159,42 @@ static void test_multitable_iterator(void)
 
 static void test_multitable_distinct_hash_collisions(void)
 {
-	enum { MULTITABLE_CAPACITY = NUM_LEVELS * BUCKET_CAPACITY };
-	FilteredMultiTable *table = multitable_create(1);
-	struct test_entry entries[MULTITABLE_CAPACITY + 1];
-	uint32_t hashes[MULTITABLE_CAPACITY + 1];
+	enum { VALUE_COUNT = 17 };
+	FilteredMultiTable *table =
+		multitable_create(VALUE_COUNT, 16, 0.75, 1.0 / 1024.0);
+	struct test_entry entries[VALUE_COUNT];
 	struct htable_multitable_iter iter;
 	const void *item;
 	size_t count = 0;
 
 	assert(table != NULL);
-	for (size_t i = 0; i < MULTITABLE_CAPACITY; i++) {
+	assert(table->num_levels == 2);
+	assert(table->levels[0].num_buckets == 1);
+	assert(table->levels[1].num_buckets == 1);
+	for (size_t i = 0; i < VALUE_COUNT; i++) {
 		init_entry(&entries[i], i);
-		hashes[i] = 0x11u + (uint32_t)i * 0x100u;
-		assert(multitable_insert(table, &entries[i].node, hashes[i]));
+		assert(multitable_insert(table, &entries[i].node,
+					 0x1000u + (uint32_t)i));
 	}
 
-	init_entry(&entries[MULTITABLE_CAPACITY], MULTITABLE_CAPACITY);
-	hashes[MULTITABLE_CAPACITY] =
-		0x11u + (uint32_t)MULTITABLE_CAPACITY * 0x100u;
-	assert(!multitable_insert(table, &entries[MULTITABLE_CAPACITY].node,
-				  hashes[MULTITABLE_CAPACITY]));
-	assert(entries[MULTITABLE_CAPACITY].node.pprev == NULL);
-	assert(!multitable_has(table, &entries[0].node,
-			      hashes[0] + 0x10000u));
-
-	assert(multitable_delete(table, &entries[3].node, hashes[3]));
-	assert(!multitable_has(table, &entries[3].node, hashes[3]));
-	assert(multitable_insert(table, &entries[MULTITABLE_CAPACITY].node,
-				 hashes[MULTITABLE_CAPACITY]));
-
-	for (size_t i = 0; i < MULTITABLE_CAPACITY; i++) {
-		if (i != 3)
-			assert(multitable_has(table, &entries[i].node, hashes[i]));
+	for (size_t i = 0; i < VALUE_COUNT; i++) {
+		assert(multitable_has(table, &entries[i].node,
+				      0x1000u + (uint32_t)i));
 	}
-	assert(multitable_has(table, &entries[MULTITABLE_CAPACITY].node,
-			      hashes[MULTITABLE_CAPACITY]));
+	assert(!multitable_has(table, &entries[0].node, 0x11000u));
+
+	assert(multitable_delete(table, &entries[3].node, 0x1003u));
+	assert(!multitable_has(table, &entries[3].node, 0x1003u));
+	assert(multitable_insert(table, &entries[3].node, 0x1003u));
 
 	htable_multitable_iter_init(&iter, table);
 	while (htable_iter_next(&iter.base, &item))
 		count++;
-	assert(count == MULTITABLE_CAPACITY);
+	assert(count == VALUE_COUNT);
 	assert(!htable_iter_next(&iter.base, &item));
 
 	multitable_free(table);
-	for (size_t i = 0; i < MULTITABLE_CAPACITY + 1; i++)
+	for (size_t i = 0; i < VALUE_COUNT; i++)
 		assert(entries[i].node.pprev == NULL);
 }
 

@@ -31,16 +31,6 @@ static __always_inline swar_bucket_t swar_get_bucket32(u32 key)
 }
 
 /**
- * swar_get_bucket - 32-bit compatibility wrapper for swar_get_bucket32
- * @key: Hash whose low seven bits contain the fingerprint
- * @returns: Hash shifted right by seven bits
- */
-static __always_inline swar_bucket_t swar_get_bucket(swar_hash_t key)
-{
-	return swar_get_bucket32(key);
-}
-
-/**
  * swar_get_key32 - Extract the fingerprint from a 32-bit hash
  * @key: Hash containing the fingerprint in its low seven bits
  * @returns: Low seven bits of @key
@@ -48,16 +38,6 @@ static __always_inline swar_bucket_t swar_get_bucket(swar_hash_t key)
 static __always_inline swar_fingerprint_t swar_get_key32(u32 key)
 {
 	return key & 0x7F;
-}
-
-/**
- * swar_get_key - 32-bit compatibility wrapper for swar_get_key32
- * @key: Hash containing the fingerprint in its low seven bits
- * @returns: Low seven bits of @key
- */
-static __always_inline swar_fingerprint_t swar_get_key(swar_hash_t key)
-{
-	return swar_get_key32(key);
 }
 
 /**
