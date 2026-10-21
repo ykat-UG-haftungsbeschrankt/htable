@@ -2,6 +2,8 @@
 #ifndef _KMOD_htable_list_H
 #define _KMOD_htable_list_H
 
+#include <stdbool.h>
+
 #include <linux/container_of.h>
 
 /**
@@ -103,7 +105,7 @@ htable_list_delete(
 static inline bool
 htable_list_has(
 	struct htable_list *list,
-	htable_hash_t hash
+	unsigned int hash
 ){
 	struct htable_list_node *node = list->tail;
 	while (likely(node != &list->sentinel)) {
@@ -117,7 +119,7 @@ htable_list_has(
 static inline struct htable_list_node *
 htable_list_get_first_match(
 	struct htable_list *list
-	,htable_hash_t hash
+	,unsigned int hash
 ){
 	struct htable_list_node *current = list->tail;
 	while (likely(current != &list->sentinel)) {
@@ -131,7 +133,7 @@ htable_list_get_first_match(
 static inline struct htable_list_node *
 htable_list_get_next_match(
 	struct htable_list_node *node
-	,htable_hash_t hash
+	,unsigned int hash
 ){
 	if(node){
 		struct htable_list_node *current = node->pprev;

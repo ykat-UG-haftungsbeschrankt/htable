@@ -13,6 +13,7 @@ typedef uint32_t u32;
 typedef uint64_t u64;
 
 #include "swar_common.h"
+#include "htable_list.h"
 
 #define NUM_LEVELS 3
 #define BUCKET_CAPACITY 4
@@ -25,7 +26,7 @@ static inline uint8_t generate_filter_tag(uint32_t hash) {
 }
 
 typedef struct {
-    struct   htable_list list;
+    struct htable_list list;
     uint32_t hash;
 } PointerHashSlot;
 
@@ -52,6 +53,19 @@ static inline uint32_t multitable_tag_matches(const TableLevel *level,
     memcpy(&packed_tags, level->filter_tags + filter_offset,
            sizeof(packed_tags));
     return (uint32_t)swar_match_u8(packed_tags, tag, BUCKET_CAPACITY);
+}
+
+static inline bool multitable_list_contains(
+    const struct htable_list *list, const struct htable_list_node *node) {
+    const struct htable_list_node *current = list->tail;
+
+    while (current != NULL && current != &list->sentinel) {
+        if (current == node) {
+            return true;
+        }
+        current = current->pprev;
+    }
+    return false;
 }
 
 /* Memory Allocation & Initialization */
@@ -116,19 +130,31 @@ static inline FilteredMultiTable* multitable_create(size_t base_buckets) {
         mt->levels[i].buckets = (Bucket*)(storage + bucket_offset);
         mt->levels[i].filter_tags = storage + tag_offset;
 
+        for (size_t bucket = 0; bucket < bucket_counts[i]; bucket++) {
+            for (size_t slot = 0; slot < BUCKET_CAPACITY; slot++) {
+                htable_list_init(
+                    &mt->levels[i].buckets[bucket].slots[slot].list);
+            }
+        }
+
         bucket_offset += level_bucket_bytes;
         tag_offset += bucket_counts[i] * BUCKET_CAPACITY;
     }
     return mt;
 }
 
-/* The table stores borrowed pointers; their owners manage pointed-to memory. */
+/* Borrowed nodes with equal full hashes share one collision list. */
 static inline int multitable_insert(FilteredMultiTable *mt,
-                                    const void *key_ptr, uint32_t hash) {
+                                    struct htable_list_node *node,
+                                    uint32_t hash) {
     uint8_t tag = generate_filter_tag(hash);
     int lvl, s;
 
-    /* Avoid storing the same pointer/hash pair more than once. */
+    if (mt == NULL || node == NULL) {
+        return 0;
+    }
+
+    /* Reuse the existing list for this full hash. */
     for (lvl = 0; lvl < NUM_LEVELS; lvl++) {
         TableLevel *level = &mt->levels[lvl];
         size_t bucket_idx = hash % level->num_buckets;
@@ -139,11 +165,24 @@ static inline int multitable_insert(FilteredMultiTable *mt,
         while (matching_slots != 0) {
             s = __builtin_ctz(matching_slots) >> 3;
             matching_slots &= matching_slots - 1;
-            if (b->slots[s].hash == hash &&
-                b->slots[s].key_ptr == key_ptr) {
+            PointerHashSlot *slot = &b->slots[s];
+
+            if (slot->hash == hash) {
+                if (multitable_list_contains(&slot->list, node)) {
+                    return 1;
+                }
+                if (node->pprev != NULL) {
+                    return 0;
+                }
+                node->hash = hash;
+                htable_list_add(&slot->list, node);
                 return 1;
             }
         }
+    }
+
+    if (node->pprev != NULL) {
+        return 0;
     }
 
     for (lvl = 0; lvl < NUM_LEVELS; lvl++) {
@@ -155,8 +194,10 @@ static inline int multitable_insert(FilteredMultiTable *mt,
 
         if (empty_slots != 0) {
             s = __builtin_ctz(empty_slots) >> 3;
-            b->slots[s].key_ptr = key_ptr;
-            b->slots[s].hash = hash;
+            PointerHashSlot *slot = &b->slots[s];
+            slot->hash = hash;
+            node->hash = hash;
+            htable_list_add(&slot->list, node);
             level->filter_tags[bucket_idx * BUCKET_CAPACITY + s] = tag;
             return 1;
         }
@@ -166,9 +207,14 @@ static inline int multitable_insert(FilteredMultiTable *mt,
 }
 
 static inline int multitable_delete(FilteredMultiTable *mt,
-                                    const void *key_ptr, uint32_t hash) {
+                                    struct htable_list_node *node,
+                                    uint32_t hash) {
     uint8_t tag = generate_filter_tag(hash);
     int lvl, s;
+
+    if (mt == NULL || node == NULL) {
+        return 0;
+    }
 
     for (lvl = 0; lvl < NUM_LEVELS; lvl++) {
         TableLevel *level = &mt->levels[lvl];
@@ -180,12 +226,16 @@ static inline int multitable_delete(FilteredMultiTable *mt,
         while (matching_slots != 0) {
             s = __builtin_ctz(matching_slots) >> 3;
             matching_slots &= matching_slots - 1;
-            if (b->slots[s].hash == hash &&
-                b->slots[s].key_ptr == key_ptr) {
-                b->slots[s].key_ptr = NULL;
-                b->slots[s].hash = 0;
-                level->filter_tags[bucket_idx * BUCKET_CAPACITY + s] =
-                    EMPTY_METADATA;
+            PointerHashSlot *slot = &b->slots[s];
+
+            if (slot->hash == hash &&
+                multitable_list_contains(&slot->list, node)) {
+                __htable_list_delete(&slot->list, node);
+                if (slot->list.tail == NULL) {
+                    slot->hash = 0;
+                    level->filter_tags[
+                        bucket_idx * BUCKET_CAPACITY + s] = EMPTY_METADATA;
+                }
                 return 1;
             }
         }
@@ -194,9 +244,14 @@ static inline int multitable_delete(FilteredMultiTable *mt,
 }
 
 static inline bool multitable_has(FilteredMultiTable *mt,
-                                  const void *key_ptr, uint32_t hash) {
+                                  const struct htable_list_node *node,
+                                  uint32_t hash) {
     uint8_t tag = generate_filter_tag(hash);
     int lvl, s;
+
+    if (mt == NULL || node == NULL) {
+        return false;
+    }
 
     for (lvl = 0; lvl < NUM_LEVELS; lvl++) {
         TableLevel *level = &mt->levels[lvl];
@@ -209,7 +264,7 @@ static inline bool multitable_has(FilteredMultiTable *mt,
             s = __builtin_ctz(matching_slots) >> 3;
             matching_slots &= matching_slots - 1;
             if (b->slots[s].hash == hash &&
-                b->slots[s].key_ptr == key_ptr) {
+                multitable_list_contains(&b->slots[s].list, node)) {
                 return 1;
             }
         }
@@ -217,8 +272,26 @@ static inline bool multitable_has(FilteredMultiTable *mt,
     return 0;
 }
 
-/* The table owns its backing allocation, not the pointed-to keys. */
+/* The table owns its allocation and unlinks borrowed nodes before freeing it. */
 static inline void multitable_free(FilteredMultiTable *mt) {
+    if (mt == NULL) {
+        return;
+    }
+
+    for (size_t lvl = 0; lvl < NUM_LEVELS; lvl++) {
+        TableLevel *level = &mt->levels[lvl];
+
+        for (size_t bucket = 0; bucket < level->num_buckets; bucket++) {
+            for (size_t slot = 0; slot < BUCKET_CAPACITY; slot++) {
+                struct htable_list *list =
+                    &level->buckets[bucket].slots[slot].list;
+
+                while (list->tail != NULL) {
+                    __htable_list_delete(list, list->tail);
+                }
+            }
+        }
+    }
     free(mt);
 }
 
@@ -226,7 +299,7 @@ static inline void multitable_free(FilteredMultiTable *mt) {
 /* Verification Runner */
 int main(void) {
     FilteredMultiTable *mt = multitable_create(8); /* Init Level 0 with 8 buckets */
-    int key_objects[5] = { 0 };
+    struct htable_list_node key_objects[5] = { 0 };
     const uint32_t hashes[5] = {
         0x12345611, 0x12345611, 0x12345711, 0x76543222, 0xabcdef33
     };
@@ -236,13 +309,17 @@ int main(void) {
         return 1;
     }
 
-    printf("Inserting pointer/hash pairs...\n");
+    for (size_t i = 0; i < 5; i++) {
+        htable_list_node_init(&key_objects[i]);
+    }
+
+    printf("Inserting list-node/hash pairs...\n");
     multitable_insert(mt, &key_objects[0], hashes[0]);
     multitable_insert(mt, &key_objects[1], hashes[1]);
     multitable_insert(mt, &key_objects[2], hashes[2]);
 
     if (multitable_has(mt, &key_objects[1], hashes[1])) {
-        printf("Hit Success! Pointer and hash matched.\n");
+        printf("Hit Success! Node and hash matched.\n");
     } else {
         printf("Hit Failed!\n");
     }
@@ -285,7 +362,7 @@ int main(void) {
         !multitable_has(mt, &key_objects[4], 0x311) ||
         !multitable_delete(mt, &key_objects[4], 0x311) ||
         multitable_has(mt, &key_objects[4], 0x311)) {
-        fprintf(stderr, "Cascaded pointer/hash verification failed.\n");
+        fprintf(stderr, "Cascaded list/hash verification failed.\n");
         multitable_free(mt);
         return 1;
     }

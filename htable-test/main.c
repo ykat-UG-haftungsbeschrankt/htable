@@ -117,27 +117,86 @@ static void test_multitable_iterator(void)
 {
 	FilteredMultiTable *table = multitable_create(1);
 	struct htable_multitable_iter iter;
-	int objects[5];
+	struct test_entry entries[5];
 	const void *item;
 	size_t count = 0;
 	int found;
 
 	assert(table != NULL);
-	for (size_t i = 0; i < 5; i++)
-		assert(multitable_insert(table, &objects[i], 0x11 + i));
+	for (size_t i = 0; i < 5; i++) {
+		init_entry(&entries[i], i);
+		assert(multitable_insert(table, &entries[i].node, 0x11));
+	}
+	assert(multitable_insert(table, &entries[0].node, 0x11));
 
 	htable_multitable_iter_init(&iter, table);
 	while (htable_iter_next(&iter.base, &item)) {
 		found = 0;
 		for (size_t i = 0; i < 5; i++)
-			if (item == &objects[i])
+			if (item == &entries[i].node)
 				found = 1;
 		assert(found);
 		count++;
 	}
 	assert(count == 5);
 	assert(!htable_iter_next(&iter.base, &item));
+	assert(multitable_delete(table, &entries[2].node, 0x11));
+	assert(!multitable_has(table, &entries[2].node, 0x11));
+	assert(entries[2].node.pprev == NULL);
+	assert(multitable_has(table, &entries[1].node, 0x11));
+	assert(multitable_insert(table, &entries[2].node, 0x11));
 	multitable_free(table);
+	for (size_t i = 0; i < 5; i++)
+		assert(entries[i].node.pprev == NULL);
+}
+
+static void test_multitable_distinct_hash_collisions(void)
+{
+	enum { MULTITABLE_CAPACITY = NUM_LEVELS * BUCKET_CAPACITY };
+	FilteredMultiTable *table = multitable_create(1);
+	struct test_entry entries[MULTITABLE_CAPACITY + 1];
+	uint32_t hashes[MULTITABLE_CAPACITY + 1];
+	struct htable_multitable_iter iter;
+	const void *item;
+	size_t count = 0;
+
+	assert(table != NULL);
+	for (size_t i = 0; i < MULTITABLE_CAPACITY; i++) {
+		init_entry(&entries[i], i);
+		hashes[i] = 0x11u + (uint32_t)i * 0x100u;
+		assert(multitable_insert(table, &entries[i].node, hashes[i]));
+	}
+
+	init_entry(&entries[MULTITABLE_CAPACITY], MULTITABLE_CAPACITY);
+	hashes[MULTITABLE_CAPACITY] =
+		0x11u + (uint32_t)MULTITABLE_CAPACITY * 0x100u;
+	assert(!multitable_insert(table, &entries[MULTITABLE_CAPACITY].node,
+				  hashes[MULTITABLE_CAPACITY]));
+	assert(entries[MULTITABLE_CAPACITY].node.pprev == NULL);
+	assert(!multitable_has(table, &entries[0].node,
+			      hashes[0] + 0x10000u));
+
+	assert(multitable_delete(table, &entries[3].node, hashes[3]));
+	assert(!multitable_has(table, &entries[3].node, hashes[3]));
+	assert(multitable_insert(table, &entries[MULTITABLE_CAPACITY].node,
+				 hashes[MULTITABLE_CAPACITY]));
+
+	for (size_t i = 0; i < MULTITABLE_CAPACITY; i++) {
+		if (i != 3)
+			assert(multitable_has(table, &entries[i].node, hashes[i]));
+	}
+	assert(multitable_has(table, &entries[MULTITABLE_CAPACITY].node,
+			      hashes[MULTITABLE_CAPACITY]));
+
+	htable_multitable_iter_init(&iter, table);
+	while (htable_iter_next(&iter.base, &item))
+		count++;
+	assert(count == MULTITABLE_CAPACITY);
+	assert(!htable_iter_next(&iter.base, &item));
+
+	multitable_free(table);
+	for (size_t i = 0; i < MULTITABLE_CAPACITY + 1; i++)
+		assert(entries[i].node.pprev == NULL);
 }
 
 int main(void)
@@ -147,6 +206,7 @@ int main(void)
 	test_independent_lists();
 	test_list_iterator();
 	test_multitable_iterator();
+	test_multitable_distinct_hash_collisions();
 	puts("htable iterator tests passed");
 	return 0;
 }

@@ -6,6 +6,7 @@
 #include "htable_list.h"
 
 struct htable_list_iter {
+	struct htable_iter base;
 	struct htable_list *list;
 	struct htable_list_node *next;
 };
