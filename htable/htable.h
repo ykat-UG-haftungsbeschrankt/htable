@@ -5,12 +5,8 @@
  * free of charge, without warranty of any kind.
  */
 
-#include <linux/build_bug.h>
-#include <linux/list.h>
-#include <linux/stddef.h>
-#include <linux/container_of.h>
-#include <linux/stringify.h>
-
+#include "swar.h"
+#include "htable_types.h"
 #include "htable_index.h"
 #include "htable_stats.h"
 #include "htable_list.h"
@@ -22,6 +18,7 @@ typedef u32 htable_hash_t;
 
 enum htable_flags {
 	HTABLE_FLAGS_INIT  = 0,
+	HTABLE_FLAGS_DEINIT = 1 << 2,
 	HTABLE_FLAGS_IS_TABLE = 1 << 0,
 	HTABLE_FLAGS_IS_ADDED_TO_INDEX = 1 << 1,
 };
@@ -31,18 +28,36 @@ struct htable {
 	struct htable_stats      stats;
 	struct htable_list       list;
 	struct htable_table      table;
-	enum   htable_flags      flags;
+	u8                       flags;
+};
+
+enum htable_node_flags {
+	HTABLE_NODE_FLAGS_INIT  = 0,
+	HTABLE_NODE_FLAGS_DEINIT = 1 << 2,
+	HTABLE_NODE_FLAGS_IS_TABLE = 1 << 0,
+	HTABLE_NODE_FLAGS_IS_ADDED_TO_INDEX = 1 << 1,
 };
 
 struct htable_node{
 	union{
-		struct hlist_list_node list;
-		struct hlist_table_node table;
-	}node;
+		struct {
+			u32  flags;
+			swar_hash_t  hash;
+			void *ptr;
+		};
+		union{
+			struct htable_list_node  list;
+			struct htable_table_node table;
+		}node;
+	};
 };
 
 
-
+void htable_node_init(struct htable_node *node, swar_hash_t hash){
+	node->flags = HTABLE_NODE_FLAGS_INIT;
+	node->hash = hash;
+	node->ptr = NULL;
+}
 
 static inline struct htable_node *htable_node_from_hlist_node(struct hlist_node *hnode)
 {
@@ -59,14 +74,24 @@ static inline struct htable_list_node *htable_node_to_htable_list_node(struct ht
 	return (struct htable_list_node *)hnode;
 }
 
-static inline struct hlist_node *__htable_node_is_type_table(struct htable_node *hnode)
+static inline struct htable_node *htable_node_from_htable_list_node(struct htable_list_node *lnode)
 {
-	return (struct hlist_node *)hnode;
+	return (struct htable_node *)lnode;
+}
+
+static inline bool htable_node_is_type_table(struct htable_node *hnode)
+{
+	return hnode->flags & HTABLE_NODE_FLAGS_IS_TABLE;
+}
+
+static inline bool htable_node_is_hashed(struct htable_node *hnode){
+	return hnode->ptr != NULL;
 }
 
 BUILD_BUG_ON(sizeof(struct hlist_head) < sizeof(void*));
 BUILD_BUG_ON(sizeof(struct hlist_node) != sizeof(struct htable_node));
-BUILD_BUG_ON(offsetof(struct hlist_list_node, hash) != offsetof(struct hlist_table_node, hash));
+BUILD_BUG_ON(offsetof(struct htable_list_node, flags) != offsetof(struct htable_table_node, flags));
+BUILD_BUG_ON(offsetof(struct htable_list_node, hash) != offsetof(struct htable_table_node, hash));
 
 
 bool __htable_is_type_list(struct htable *table){
@@ -85,23 +110,66 @@ void __htable_set_type_table(struct htable *table){
 	table->flags |= HTABLE_FLAGS_IS_TABLE;
 }
 
-void htable_init(struct *htable){}
-void htable_deinit(struct *htable){}
+void htable_init(struct htable *htable, const char *name){
+	htable_index_init(&htable->index);
+	htable_stats_init(&htable->stats,name);
+	htable_list_init(&htable->list);
+	htable_table_init(&htable->table);
+	htable->flags = HTABLE_FLAGS_INIT;
+}
+void htable_deinit(struct htable *htable){
+	htable_index_deinit(&htable->index);
+	htable_stats_deinit(&htable->stats);
+	htable_list_deinit(&htable->list);
+	htable_table_deinit(&htable->table);
+	htable->flags = HTABLE_FLAGS_DEINIT;
+}
 
 
 //////////////////////////////////////////////////////////////////////////
 // Htable index management functions
 //////////////////////////////////////////////////////////////////////////
+static inline struct htable_node *
+htable_resize_list_remove_node(struct htable *table)
+{
+	struct htable_list_node *node = htable_list_last(&table->list);
+	if(!node)
+		return NULL;
+	htable_list_del(node);
+	return htable_node_from_htable_list_node(node);
+}
+
+static inline struct htable_node *
+htable_resize_table_remove_node(struct htable *table)
+{
+	struct htable_list_node *node = htable_list_last(&table->list);
+	if(!node)
+		return NULL;
+	htable_list_del(node);
+	return htable_node_from_htable_list_node(node);
+}
+
+static inline void
+htable_resize_list_add_node(struct htable *table,struct htable_node *node)
+{
+	htable_list_add(&table->list, htable_node_to_htable_list_node(node));
+}
+
+static inline bool
+htable_resize_table_add_node(struct htable *table, struct htable_node *node)
+{
+	return htable_table_add(&table->table, htable_node_to_htable_table_node(node));
+}
 
 void htable_resize_list2table(struct htable *table){
 	struct htable_node *node = NULL;
 	if(__htable_is_type_list(table)){
 		__htable_set_type_table(table);
-		while((node = htable_list_remove_node(table))){
-			if(!htable_table_dynamic_add_node(table,node)){
-				htable_list_add_node(table,node);
-				while((node = htable_table_dynamic_remove_node(table))){
-					htable_list_add_node(table,node);
+		while((node = htable_resize_list_remove_node(table))){
+			if(!htable_resize_table_add_node(table,node)){
+				htable_resize_list_add_node(table,node);
+				while((node = htable_resize_table_remove_node(table))){
+					htable_resize_list_add_node(table,node);
 				}
 				__htable_set_type_list(table);
 				break;
@@ -114,49 +182,49 @@ void htable_resize_table2list(struct htable *table){
 	struct htable_node *node = NULL;
 	if(__htable_is_type_table(table)){
 		__htable_set_type_list(table);
-		while((node = htable_table_dynamic_remove_node(table))){
-			htable_list_add_node(table,node);
+		while((node = htable_resize_table_remove_node(table))){
+			htable_resize_list_add_node(table,node);
 		}
 	}
 }
 
 void htable_resize(struct htable *table){
 	htable_resize_table2list(table);
-	if(htable_table_resize(table)){
+	if(htable_table_resize(&table->table,table->stats.average)){
 		htable_resize_list2table(table);
 	}
 }
 
 void htable_add_node(struct htable *table, struct htable_node *node, uintptr_t key){
 	if(__htable_is_type_table(table)){
-		node->key = key;
-		if(!htable_table_dynamic_add_node(table,node)){
+		node->hash = key;
+		if(!htable_resize_table_add_node(table,node)){
 			htable_resize_table2list(table);
-			htable_list_add_node(table,node);
+			htable_resize_list_add_node(table,node);
 		}
 	}else{
-		htable_list_add_node(table,node);
+		htable_resize_list_add_node(table,node);
 	}
 }
 
 void htable_remove_node(struct htable_node *node){
 	if(htable_node_is_type_table(node)){
 		struct htable *table = container_of(
-			 htable_table_get_by_node(node)
+			 htable_table_get_by_node(htable_node_to_htable_table_node(node))
 			,struct htable
 			,table
 		);
-		if(!htable_table_dynamic_add_node(table,node)){
+		if(!htable_resize_table_add_node(table,node)){
 			htable_resize_table2list(table);
-			htable_list_add_node(table,node);
+			htable_resize_list_add_node(table,node);
 		}
 	}else{
 		struct htable *table = container_of(
-			 htable_table_list_get_by_node(node)
+			 htable_list_get_by_node(htable_node_to_htable_list_node(node))
 			,struct htable
 			,list
 		);
-		htable_list_add_node(&table->list,node);
+		htable_resize_list_add_node(table,node);
 	}
 }
 
@@ -194,10 +262,10 @@ void htable_remove_node(struct htable_node *node){
  * This has to be a macro since HASH_BITS() will not work on pointers since
  * it calculates the size during preprocessing.
  */
-#define hash_init(hashtable) __hash_init(hashtable)
-static inline void __hash_init(struct htable *htable)
+#define hash_init(hashtable) __hash_init(hashtable,#hashtable)
+static inline void __hash_init(struct htable *htable,const char *name)
 {
-	htable_init(htable);
+	htable_init(htable,name);
 }
 
 #define hash_deinit(hashtable) __hash_deinit(hashtable)
@@ -215,19 +283,20 @@ static inline void __hash_deinit(struct htable *htable)
  * @key: the key of the object to be added
  */
 #define hash_add(hashtable, node, key)						\
-	__hash_add(hashtable##_htable,node, key)
+	__hash_add(hashtable,node, key)
 static inline void __hash_add(struct htable *htable, struct hlist_node *hnode, htable_hash_t key)
 {
-	struct htable_node *node = (struct htable_node *)hnode;
+	struct htable_node *node = htable_node_from_hlist_node(hnode);
 	htable_index_add(htable);
 	htable_stats_on_add(&htable->stats);
+	htable_node_init(node,key);
 	if(__htable_is_type_table(htable)){
-		if(!htable_table_hash_add(htable,node,key)){
+		if(!htable_table_add(&htable->table,htable_node_to_htable_table_node(node))){
 			htable_resize_table2list(htable);
-			htable_list_hash_add(htable,node,key);
+			htable_list_add(&htable->list,htable_node_to_htable_list_node(node));
 		}
 	}else{
-		htable_list_hash_add(htable,node,key);
+		htable_list_add(&htable->list,htable_node_to_htable_list_node(node));
 	}
 }
 
@@ -240,11 +309,10 @@ static inline void __hash_add(struct htable *htable, struct hlist_node *hnode, h
  * @key: the key of the object to be added
  */
 #define hash_add_rcu(hashtable, node, key)					\
-	__hash_add_rcu(hashtable##_htable, node, key)
+	__hash_add_rcu(hashtable, node, key)
 static inline void __hash_add_rcu(struct htable *htable, struct hlist_node *node, htable_hash_t key)
 {
-	htable_index_add(htable);
-	hlist_add_head_rcu(node,&htable->table_static[htable_hash(key,htable->hash_bits)]);
+	hash_add(htable, node, key);
 }
 
 /**
@@ -267,7 +335,7 @@ static inline bool hash_hashed(struct hlist_node *hnode)
  * This has to be a macro since HASH_BITS() will not work on pointers since
  * it calculates the size during preprocessing.
  */
-#define hash_empty(hashtable) __hash_empty(hashtable##_htable)
+#define hash_empty(hashtable) __hash_empty(hashtable)
 static inline bool __hash_empty(struct htable *htable)
 {
 	return htable->stats.entries == 0;
@@ -282,22 +350,22 @@ static inline void hash_del(struct hlist_node *hnode)
 	struct htable_node *node = htable_node_from_hlist_node(hnode);
 	struct htable *htable;
 
-	if(__htable_node_is_type_table(node)){
-		struct htable_table_node *node = htable_node_to_htable_table_node(hnode);
+	if(htable_node_is_type_table(node)){
+		struct htable_table_node *node = htable_node_to_htable_table_node(node);
 		htable = container_of(
 			 htable_table_get_by_node(node)
 			,struct htable
 			,table
 		);
-		htable_table_hash_del(&htable->table,node);
+		__htable_table_delete(&htable->table,node);
 	}else{
-		struct htable_list_node *node = htable_node_to_htable_list_node(hnode);
+		struct htable_list_node *node = htable_node_to_htable_list_node(node);
 		htable = container_of(
 			 htable_list_get_by_node(node)
 			,struct htable
 			,list
 		);
-		htable_list_hash_del(&htable->list,node);
+		__htable_list_del(&htable->list,node);
 	}
 	htable_stats_on_del(&htable->stats);
 }
@@ -308,8 +376,5 @@ static inline void hash_del(struct hlist_node *hnode)
  */
 static inline void hash_del_rcu(struct hlist_node *node)
 {
-	struct htable *htable = container_of(node->pprev, struct htable, table_static);
-	if(htable->table_static == NULL)
-		return;
-	hlist_del_init_rcu(node);
+	hash_del(node);
 }

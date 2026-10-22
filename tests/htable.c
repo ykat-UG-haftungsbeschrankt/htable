@@ -15,7 +15,6 @@
 
 typedef uint32_t u32;
 
-#define _KMOD_htable_table_H
 struct htable_table_node {
 	u32 hash;
 };

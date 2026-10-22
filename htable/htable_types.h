@@ -38,9 +38,8 @@ typedef bool b;
 #  define __stringify_1(x) #x
 #  define stringify(x) __stringify(x)
 #  define NULL ((void*)0)
-#  define BUILD_BUG_ON_MSG(cond, msg) compiletime_assert(!(cond), msg)
 #  define BUILD_BUG_ON(condition) \
-	BUILD_BUG_ON_MSG(condition, "BUILD_BUG_ON failed: " #condition)
+	_Static_assert(!(condition), "BUILD_BUG_ON failed: " #condition)
 #  define htable_malloc(size) malloc(size)
 #  define htable_free(ptr) free(ptr)
 #  define POISON_POINTER_DELTA   0
