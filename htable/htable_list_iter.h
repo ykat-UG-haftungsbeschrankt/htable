@@ -43,6 +43,12 @@ htable_list_iter_get_current_match(const struct htable_list_iter *iter)
 }
 
 static inline struct htable_list_node *
+htable_list_iter_get_first_match(const struct htable_list_iter *iter)
+{
+	return iter->next;
+}
+
+static inline struct htable_list_node *
 htable_list_iter_get_next_match(struct htable_list_iter *iter)
 {
 	iter->next = htable_list_get_next_match(iter->next, iter->hash);
