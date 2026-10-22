@@ -5,12 +5,10 @@
  * free of charge, without warranty of any kind.
  */
 
-#ifndef _KMOD_htable_list_H
-#define _KMOD_htable_list_H
+#ifndef HTABLE_LIST_H
+#define HTABLE_LIST_H
 
-#include <stdbool.h>
-
-#include <linux/container_of.h>
+#include "htable_types.h"
 
 /**
  * struct htable_list - Predecessor chain with a sentinel
@@ -21,7 +19,8 @@
  * synchronized. Traversal from an entry to its predecessor follows pprev.
  */
 struct htable_list_node {
-	unsigned int hash;
+	u32 flags;
+	u32 hash;
 	struct htable_list_node *pprev;
 };
 
@@ -46,6 +45,11 @@ static inline void htable_list_node_init(struct htable_list_node *node){
 static inline void htable_list_init(
 	struct htable_list *list
 ){
+	list->sentinel.pprev = NULL;
+	list->tail = NULL;
+}
+
+static inline void htable_list_deinit(struct htable_list *list){
 	list->sentinel.pprev = NULL;
 	list->tail = NULL;
 }
@@ -77,7 +81,7 @@ static inline struct htable_list *htable_list_get_by_node(
 }
 
 static inline void
-__htable_list_delete(
+__htable_list_del(
 	struct htable_list *list
 	, struct htable_list_node *node
 ){
@@ -101,11 +105,11 @@ __htable_list_delete(
 }
 
 static inline void
-htable_list_delete(
+htable_list_del(
 	struct htable_list_node *node
 ){
 	struct htable_list *list = htable_list_get_by_node(node);
-	__htable_list_delete(list, node);
+	__htable_list_del(list, node);
 }
 
 static inline bool
@@ -152,4 +156,4 @@ htable_list_get_next_match(
 	return NULL;
 }
 
-#endif /* _KMOD_htable_list_H */
+#endif /* HTABLE_LIST_H */

@@ -8,8 +8,7 @@
 #ifndef HTABLE_MULTITABLE_ITER_H
 #define HTABLE_MULTITABLE_ITER_H
 
-#include <stdbool.h>
-
+#include "htable_types.h"
 #include "htable_table.h"
 
 struct htable_multitable_iter {

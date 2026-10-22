@@ -8,6 +8,7 @@
 #ifndef HTABLE_LIST_ITER_H
 #define HTABLE_LIST_ITER_H
 
+#include "htable_types.h"
 #include "htable_list.h"
 
 struct htable_list_iter {

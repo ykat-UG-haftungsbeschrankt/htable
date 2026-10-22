@@ -8,6 +8,8 @@
 #ifndef HTABLE_SWAR32_H
 #define HTABLE_SWAR32_H
 
+#include "htable_types.h"
+
 /**
  * swar_get_hash32 - Calculate a CRC32C hash from a 32-bit key
  * @key: Key used as both the CRC32C seed and input value

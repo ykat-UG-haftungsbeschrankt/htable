@@ -8,6 +8,8 @@
 #ifndef HTABLE_SWAR64_H
 #define HTABLE_SWAR64_H
 
+#include "htable_types.h"
+
 /**
  * swar_get_hash64 - Calculate a CRC32C hash from a 64-bit key
  * @key: Key used as both the CRC32C seed and input value

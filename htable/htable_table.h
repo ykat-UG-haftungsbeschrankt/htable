@@ -5,13 +5,8 @@
  * free of charge, without warranty of any kind.
  */
 
-#ifndef _KMOD_htable_table_H
-#define _KMOD_htable_table_H
-
-#include <linux/errno.h>
-#include <linux/rhashtable.h>
-#include <linux/stddef.h>
-#include <linux/types.h>
+#ifndef HTABLE_TABLE_H
+#define HTABLE_TABLE_H
 
 struct htable_table;
 
@@ -111,4 +106,9 @@ static inline int htable_table_delete(struct htable_table_node *node)
 	return __htable_table_delete(table, node);
 }
 
-#endif /* _KMOD_htable_table_H */
+static inline bool htable_table_resize(struct htable_table *table,size_t size)
+{
+	return !rhashtable_resize(&table->hash, size, htable_table_params);
+}
+
+#endif /* HTABLE_TABLE_H */

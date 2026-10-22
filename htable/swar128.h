@@ -8,6 +8,7 @@
 #ifndef HTABLE_SWAR128_H
 #define HTABLE_SWAR128_H
 
+#include "htable_types.h"
 #include "swar64.h"
 
 /**

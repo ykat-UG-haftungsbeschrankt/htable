@@ -5,6 +5,11 @@
  * free of charge, without warranty of any kind.
  */
 
+#ifndef HTABLE_STATS_H
+#define HTABLE_STATS_H
+
+#include "htable_types.h"
+
 struct htable_stats {
 	const char           *name;
 	usize                entries;
@@ -31,34 +36,58 @@ struct htable_stats {
 	.collisions = 0,						\
 }
 
-//////////////////////////////////////////////////////////////////////////
-// Htable statistics functions
-//////////////////////////////////////////////////////////////////////////
-
-void htable_stats_on_add(struct htable *table){
-	usize entries = ++table->stats.entries;
-	table->stats.average += entries;
-	table->stats.add++;
+static inline void htable_stats_init(struct htable_stats *stats, const char *name){
+	stats->name = name;
+	stats->entries = 0;
+	stats->size = 0;
+	stats->cycles = 0;
+	stats->average = 0;
+	stats->add = 0;
+	stats->remove = 0;
+	stats->resizes = 0;
+	stats->lookups = 0;
+	stats->collisions = 0;
 }
 
-void htable_stats_on_del(struct htable *table){
-	usize entries = --table->stats.entries;
-	table->stats.average += entries;
-	table->stats.remove++;
+static inline void htable_stats_deinit(struct htable_stats *stats){
+	stats->name = (const char *)NULL;
+	stats->entries = 0;
+	stats->size = 0;
+	stats->cycles = 0;
+	stats->average = 0;
+	stats->add = 0;
+	stats->remove = 0;
+	stats->resizes = 0;
+	stats->lookups = 0;
+	stats->collisions = 0;
 }
 
-usize htable_stats_get_average_size(struct htable *table){
-	return table->stats.average / (table->stats.add + table->stats.remove);
+void htable_stats_on_add(struct htable_stats *stats){
+	usize entries = ++stats->entries;
+	stats->average += entries;
+	stats->add++;
 }
 
-void htable_stats_on_collision(struct htable *table){
-	table->stats.collisions++;
+void htable_stats_on_del(struct htable_stats *stats){
+	usize entries = --stats->entries;
+	stats->average += entries;
+	stats->remove++;
 }
 
-void htable_stats_on_resize(struct htable *table){
-	table->stats.resizes++;
+usize htable_stats_get_average_size(struct htable_stats *stats){
+	return stats->average / (stats->add + stats->remove);
 }
 
-void htable_stats_on_lookup(struct htable *table){
-	table->stats.lookups++;
+void htable_stats_on_collision(struct htable_stats *stats){
+	stats->collisions++;
 }
+
+void htable_stats_on_resize(struct htable_stats *stats){
+	stats->resizes++;
+}
+
+void htable_stats_on_lookup(struct htable_stats *stats){
+	stats->lookups++;
+}
+
+#endif /* HTABLE_STATS_H */

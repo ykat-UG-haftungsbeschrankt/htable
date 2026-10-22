@@ -8,14 +8,7 @@
 #ifndef HTABLE_SWAR_H
 #define HTABLE_SWAR_H
 
-#include <nmmintrin.h>
-#include <string.h>
-
-#include <linux/types.h>
-
-#ifndef __always_inline
-#define __always_inline inline __attribute__((always_inline))
-#endif
+#include "htable_types.h"
 
 #define SWAR_SLOT_SET_SIG   0x80
 #define SWAR_SLOT_EMPTY_SIG 0x00

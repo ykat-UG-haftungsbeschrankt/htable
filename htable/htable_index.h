@@ -5,13 +5,26 @@
  * free of charge, without warranty of any kind.
  */
 
-//////////////////////////////////////////////////////////////////////////
-// Htable index management functions
-//////////////////////////////////////////////////////////////////////////
+#ifndef HTABLE_INDEX_H
+#define HTABLE_INDEX_H
 
-HLIST_HEAD(__htable_index);
+#include "htable_types.h"
+
+struct hlist_head __htable_index = { 0 };
 
 #define HTABLE_INDEX_INIT HLIST_NODE_INIT
+
+struct htable_index {
+	struct hlist_node node;
+};
+
+void htable_index_init(struct htable_index *index){
+	INIT_HLIST_NODE(&index->node);
+}
+
+void htable_index_deinit(struct htable_index *index){
+	hlist_del(&index->node);
+}
 
 void htable_index_add(struct htable *table){
 	if(unlikely(!table->is_added_to_index)){
@@ -37,3 +50,5 @@ void htable_index_each(void (*callback)(struct htable *, void *),void *arg){
 	}
 }
 EXPORT_SYMBOL(htable_index_each);
+
+#endif /* HTABLE_INDEX_H */

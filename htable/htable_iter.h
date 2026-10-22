@@ -8,6 +8,7 @@
 #ifndef HTABLE_ITER_H
 #define HTABLE_ITER_H
 
+#include "htable_types.h"
 #include "htable_list_iter.h"
 #include "htable_multitable_iter.h"
 
