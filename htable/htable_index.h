@@ -10,7 +10,7 @@
 
 #include "htable_types.h"
 
-struct hlist_head __htable_index = { 0 };
+HLIST_HEAD(__htable_index);
 
 #define HTABLE_INDEX_INIT HLIST_NODE_INIT
 
@@ -26,26 +26,28 @@ void htable_index_deinit(struct htable_index *index){
 	hlist_del(&index->node);
 }
 
-void htable_index_add(struct htable *table){
-	if(unlikely(!table->is_added_to_index)){
-		table->is_added_to_index = true;
-		hlist_add(&__htable_index, &table->index_node);
+bool htable_index_is_added(struct htable_index *index){
+	return index->node.pprev != NULL;
+}
+
+void htable_index_add(struct htable_index *index){
+	if(unlikely(!htable_index_is_added(index))){
+		hlist_add(&__htable_index, &index->node);
 	}
 }
 EXPORT_SYMBOL(htable_index_add);
 
-void htable_index_del(struct htable *table){
-	if(likely(table->is_added_to_index)){
-		table->is_added_to_index = false;
-		hlist_del(&table->index_node);
+void htable_index_del(struct htable_index *index){
+	if(likely(htable_index_is_added(index))){
+		hlist_del(&index->node);
 	}
 }
 EXPORT_SYMBOL(htable_index_del);
 
-void htable_index_each(void (*callback)(struct htable *, void *),void *arg){
+void htable_index_each(void (*callback)(struct htable_index *, void *),void *arg){
 	struct hlist_node *pos;
 	hlist_for_each(pos, &__htable_index){
-		struct htable *entry = container_of(pos, struct htable, index_node);
+		struct htable_index *entry = container_of(pos, struct htable_index, node);
 		callback(entry, arg);
 	}
 }
