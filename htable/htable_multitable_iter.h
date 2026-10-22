@@ -8,11 +8,14 @@
 #ifndef HTABLE_MULTITABLE_ITER_H
 #define HTABLE_MULTITABLE_ITER_H
 
+#include <stdbool.h>
+
 #include "htable_table.h"
 
 struct htable_multitable_iter {
 	struct htable_table *table;
 	u32 hash;
+	bool first_match_pending;
 };
 
 /**
@@ -28,6 +31,7 @@ htable_multitable_iter_init(struct htable_table *table, u32 hash)
 	struct htable_multitable_iter iter = {
 		.table = table,
 		.hash = hash,
+		.first_match_pending = true,
 	};
 
 	return iter;
@@ -39,13 +43,17 @@ htable_multitable_iter_init(struct htable_table *table, u32 hash)
 static inline struct htable_table_node *
 htable_multitable_iter_get_first_match(struct htable_multitable_iter *iter)
 {
+	if (!iter->first_match_pending)
+		return NULL;
+
+	iter->first_match_pending = false;
 	return htable_table_lookup_rcu(iter->table, iter->hash);
 }
 
 static inline struct htable_table_node *
 htable_multitable_iter_get_next_match(struct htable_multitable_iter *iter)
 {
-	(void)iter;
+	iter->first_match_pending = false;
 	return NULL;
 }
 

@@ -37,7 +37,7 @@ htable_list_iter_init(struct htable_list *list, unsigned int hash)
 }
 
 static inline struct htable_list_node *
-htable_list_iter_get_first_match(const struct htable_list_iter *iter)
+htable_list_iter_get_current_match(const struct htable_list_iter *iter)
 {
 	return iter->next;
 }
@@ -52,7 +52,7 @@ htable_list_iter_get_next_match(struct htable_list_iter *iter)
 #define htable_list_for_each(list,hash,ptr) \
 	for(\
 		struct htable_list_iter it = htable_list_iter_init(list, hash)\
-		;NULL != (ptr = htable_list_iter_get_first_match(&it))\
+		;NULL != (ptr = htable_list_iter_get_current_match(&it))\
 		;htable_list_iter_get_next_match(&it)\
 	)
 
