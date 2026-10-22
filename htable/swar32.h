@@ -46,7 +46,10 @@ static __always_inline swar_fingerprint_t swar_get_key32(swar_hash_t key)
  */
 static __always_inline u32 swar_match32(u32 values, u8 target)
 {
-	return (u32)swar_match_u8(values, target, 4);
+	u32 xor_result = values ^ (target * 0x01010101U);
+
+	return ~(((xor_result & 0x7F7F7F7FU) + 0x7F7F7F7FU) |
+		 xor_result) & 0x80808080U;
 }
 
 /**

@@ -26,7 +26,11 @@ static __always_inline swar_hash_t swar_get_hash64(u64 key)
  */
 static __always_inline u64 swar_match64(u64 values, u8 target)
 {
-	return swar_match_u8(values, target, 8);
+	u64 xor_result = values ^ (target * 0x0101010101010101ULL);
+
+	return ~(((xor_result & 0x7F7F7F7F7F7F7F7FULL) +
+		  0x7F7F7F7F7F7F7F7FULL) |
+		 xor_result) & 0x8080808080808080ULL;
 }
 
 /**

@@ -11,6 +11,11 @@
 #include <linux/container_of.h>
 #include <linux/stringify.h>
 
+#include "htable_index.h"
+#include "htable_stats.h"
+#include "htable_list.h"
+#include "htable_table.h"
+
 #define HTABLE_RESIZE_THRESHOLD 1000
 
 typedef u32 htable_hash_t;
@@ -23,7 +28,7 @@ enum htable_flags {
 
 struct htable {
 	struct htable_index      index;
-	struct htable_statistics stats;
+	struct htable_stats      stats;
 	struct htable_list       list;
 	struct htable_table      table;
 	enum   htable_flags      flags;

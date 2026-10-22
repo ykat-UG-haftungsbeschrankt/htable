@@ -7,26 +7,34 @@ obj-m += htable.o
 KDIR ?= /lib/modules/$(shell uname -r)/build
 PWD := $(CURDIR)
 CC ?= cc
-HTABLE_TEST_CFLAGS ?= -std=gnu11 -g -O0 -Wall -Wextra -Werror
+HTABLE_TEST_CFLAGS ?= -std=gnu11 -g -O0 -Wall -Wextra -Werror -msse4.2
+HTABLE_TEST_SOURCES := tests/htable.c tests/htable_list.c \
+		tests/htable_table.c tests/swar.c
+HTABLE_TEST_HEADERS := htable/htable_list.h \
+		htable/htable_multitable.h htable/swar.h htable/swar32.h \
+		htable/swar64.h htable/swar128.h include/linux/container_of.h
 
 # Override MOD=<name> to target a specific module for insert/remove, e.g.:
 #   make insert MOD=hashtable_bench
 MOD ?= hello
 
-.PHONY: all clean insert remove log bench htable-test
+.PHONY: all clean insert remove log bench htable-test swar-test
 
 all:
 	$(MAKE) -C $(KDIR) M=$(PWD) modules
 
-htable-test: htable-test/main.c htable/htable_list.h htable/htable_iter.h \
-		htable/htable_list_iter.h htable/htable_multitable_iter.h \
-		htable/htable_multitable.h htable/swar_common.h \
-		tests/include/linux/container_of.h
-	$(CC) $(HTABLE_TEST_CFLAGS) -I. -Itests/include $< -o htable-test/htable-test -lm
+htable-test: $(HTABLE_TEST_SOURCES) $(HTABLE_TEST_HEADERS)
+	$(CC) $(HTABLE_TEST_CFLAGS) -I. -Iinclude $(HTABLE_TEST_SOURCES) \
+		-o htable-test/htable-test -lm
+
+swar-test: tests/swar.c htable/swar.h htable/swar32.h htable/swar64.h \
+		htable/swar128.h
+	$(CC) $(HTABLE_TEST_CFLAGS) -I. -DSWAR_TEST_STANDALONE $< \
+		-o tests/swar-test
 
 clean:
 	$(MAKE) -C $(KDIR) M=$(PWD) clean
-	$(RM) htable-test/htable-test
+	$(RM) htable-test/htable-test tests/swar-test
 
 insert:
 	sudo insmod $(MOD).ko $(ARGS)

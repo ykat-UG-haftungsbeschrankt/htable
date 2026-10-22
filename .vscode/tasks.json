@@ -11,18 +11,8 @@
         {
             "label": "swar_test: build",
             "type": "shell",
-            "command": "cc",
-            "args": [
-                "-std=gnu11",
-                "-g",
-                "-O0",
-                "-Wall",
-                "-Wextra",
-                "-msse4.2",
-                "${workspaceFolder}/swar_test.c",
-                "-o",
-                "${workspaceFolder}/swar_test"
-            ],
+            "command": "make",
+            "args": ["swar-test"],
             "problemMatcher": ["$gcc"]
         },
         {

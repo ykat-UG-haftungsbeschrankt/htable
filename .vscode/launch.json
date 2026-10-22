@@ -19,7 +19,7 @@
             "name": "Debug swar_test",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/swar_test",
+            "program": "${workspaceFolder}/tests/swar-test",
             "args": [],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",

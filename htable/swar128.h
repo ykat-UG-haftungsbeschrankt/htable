@@ -38,32 +38,27 @@ static __always_inline swar_hash_t swar_get_hash128(swar_u128_t key)
  */
 static __always_inline swar_u128_t swar_match128(swar_u128_t values, u8 target)
 {
-	u64 low;
-	u64 high;
-	u64 low_matches;
-	u64 high_matches;
-
 #if SWAR_HAS_U128
-	low = (u64)values;
-	high = (u64)(values >> 64);
-#else
-	low = values.low;
-	high = values.high;
-#endif
-	low_matches = swar_match64(low, target);
-	high_matches = swar_match64(high, target);
+	const swar_u128_t byte_ones =
+		((swar_u128_t)0x0101010101010101ULL << 64) |
+		0x0101010101010101ULL;
+	const swar_u128_t byte_low_bits =
+		((swar_u128_t)0x7F7F7F7F7F7F7F7FULL << 64) |
+		0x7F7F7F7F7F7F7F7FULL;
+	const swar_u128_t byte_high_bits =
+		((swar_u128_t)0x8080808080808080ULL << 64) |
+		0x8080808080808080ULL;
+	swar_u128_t xor_result = values ^ (byte_ones * target);
 
-#if SWAR_HAS_U128
-	return ((swar_u8x16_t)high_matches << 64) | low_matches;
+	return ~(((xor_result & byte_low_bits) + byte_low_bits) | xor_result) &
+	       byte_high_bits;
 #else
-	{
-		swar_u8x16_t matches = {
-			.low = low_matches,
-			.high = high_matches,
-		};
+	swar_u128_t matches = {
+		.low = swar_match64(values.low, target),
+		.high = swar_match64(values.high, target),
+	};
 
-		return matches;
-	}
+	return matches;
 #endif
 }
 

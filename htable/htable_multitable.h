@@ -21,7 +21,7 @@ typedef uint8_t u8;
 typedef uint32_t u32;
 typedef uint64_t u64;
 
-#include "swar_common.h"
+#include "swar.h"
 #include "htable_list.h"
 
 #define EMPTY_METADATA 0x00
@@ -74,7 +74,7 @@ static inline bool multitable_find_tag_slot(const TableLevel *level,
             chunk_size = sizeof(packed_tags);
         }
         memcpy(&packed_tags, level->filter_tags + filter_offset, chunk_size);
-        matches = swar_match_u8(packed_tags, tag, (uint8_t)chunk_size);
+        matches = swar_match(packed_tags, tag, (uint8_t)chunk_size);
         if (matches != 0) {
             *slot_idx = start_slot + (__builtin_ctzll(matches) >> 3);
             return true;
