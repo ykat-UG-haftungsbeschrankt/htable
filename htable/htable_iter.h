@@ -21,7 +21,7 @@ struct htable_iter {
 
 void *htable_iter_get_first_match(struct htable *table, struct htable_iter *iter)
 {
-	if (htable_table_is_list(table))
+	if (__htable_is_type_list(table))
 		return htable_list_iter_get_first_match(&iter->list);
 	else
 		return htable_multitable_iter_get_first_match(&iter->table);
@@ -30,10 +30,10 @@ void *htable_iter_get_first_match(struct htable *table, struct htable_iter *iter
 struct htable_iter htable_iter_init(struct htable *table, size_t hash)
 {
 	struct htable_iter it;
-	if (htable_table_is_list(table))
-		it.list = htable_list_iter_init(table, hash);
+	if (__htable_is_type_list(table))
+		it.list = htable_list_iter_init(&table->list, hash);
 	else
-		it.table = htable_multitable_iter_init(table, hash);
+		it.table = htable_multitable_iter_init(&table->table, hash);
 
 	it.ptr = htable_iter_get_first_match(table, &it);
 	return it;
@@ -41,12 +41,13 @@ struct htable_iter htable_iter_init(struct htable *table, size_t hash)
 
 void *htable_iter_get_current_match(struct htable *table, struct htable_iter *iter)
 {
+	(void)table;
 	return iter->ptr;
 }
 
 void htable_iter_get_next_match(struct htable *table, struct htable_iter *iter)
 {
-	if (htable_table_is_list(table))
+	if (__htable_is_type_list(table))
 		iter->ptr = htable_list_iter_get_next_match(&iter->list);
 	else
 		iter->ptr = htable_multitable_iter_get_next_match(&iter->table);
@@ -56,6 +57,7 @@ void htable_iter_get_next_match(struct htable *table, struct htable_iter *iter)
 	for(\
 		struct htable_iter it = htable_iter_init(table, hash)\
 		;NULL != (ptr = htable_iter_get_current_match(table,&it))\
-		;htable_iter_get_next_match(table,&it))
+		;htable_iter_get_next_match(table,&it)\
+	)
 
 #endif

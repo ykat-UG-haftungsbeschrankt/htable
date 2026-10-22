@@ -10,7 +10,7 @@ CC ?= cc
 HTABLE_TEST_CFLAGS ?= -std=gnu11 -g -O0 -Wall -Wextra -Werror -msse4.2
 HTABLE_TEST_SOURCES := tests/htable.c tests/htable_list.c \
 		tests/htable_table.c tests/swar.c
-HTABLE_TEST_HEADERS := htable/htable_list.h \
+HTABLE_TEST_HEADERS := htable/htable_list.h htable/htable_list_iter.h \
 		htable/htable_multitable.h htable/swar.h htable/swar32.h \
 		htable/swar64.h htable/swar128.h include/linux/container_of.h
 

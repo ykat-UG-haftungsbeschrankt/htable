@@ -8,6 +8,7 @@
 #include <assert.h>
 
 #include "htable/htable_list.h"
+#include "htable/htable_list_iter.h"
 
 struct test_entry {
 	int value;
@@ -93,9 +94,34 @@ static void test_independent_lists(void)
 	assert(htable_list_get_by_node(&entries[1].node) == &lists[1]);
 }
 
+static void test_hash_match_iterator(void)
+{
+	struct htable_list list;
+	struct test_entry entries[4];
+	struct htable_list_iter iter;
+
+	htable_list_init(&list);
+	for (int i = 0; i < 4; i++) {
+		init_entry(&entries[i], i);
+		entries[i].node.hash = i == 1 ? 9 : 7;
+		htable_list_add(&list, &entries[i].node);
+	}
+
+	iter = htable_list_iter_init(&list, 7);
+	assert(htable_list_iter_get_first_match(&iter) == &entries[3].node);
+	assert(htable_list_iter_get_next_match(&iter) == &entries[2].node);
+	assert(htable_list_iter_get_next_match(&iter) == &entries[0].node);
+	assert(htable_list_iter_get_next_match(&iter) == NULL);
+
+	iter = htable_list_iter_init(&list, 10);
+	assert(htable_list_iter_get_first_match(&iter) == NULL);
+	assert(htable_list_iter_get_next_match(&iter) == NULL);
+}
+
 void test_htable_list(void)
 {
 	test_empty_and_single_node();
 	test_middle_head_and_tail_deletion();
 	test_independent_lists();
+	test_hash_match_iterator();
 }

@@ -8,101 +8,52 @@
 #ifndef HTABLE_MULTITABLE_ITER_H
 #define HTABLE_MULTITABLE_ITER_H
 
-#include <linux/container_of.h>
-
-#include "htable_iter.h"
-#include "htable_multitable.h"
+#include "htable_table.h"
 
 struct htable_multitable_iter {
-	struct htable_iter base;
-	const FilteredMultiTable *table;
-	size_t level;
-	size_t bucket;
-	size_t slot;
-	const struct htable_list_node *next_node;
-	const struct htable_list_node *sentinel;
-};
-
-static inline bool htable_multitable_iter_next_impl(struct htable_iter *base,
-						    const void **item)
-{
-	struct htable_multitable_iter *iter =
-		container_of(base, struct htable_multitable_iter, base);
-
-	while (iter->level < iter->table->num_levels) {
-		const TableLevel *level = &iter->table->levels[iter->level];
-
-		while (iter->bucket < level->num_buckets) {
-			while (iter->slot < iter->table->bucket_capacity ||
-			       iter->next_node != NULL) {
-				if (iter->next_node != NULL) {
-					const struct htable_list_node *node =
-						iter->next_node;
-					const struct htable_list_node *previous =
-						node->pprev;
-
-					iter->next_node =
-						previous == iter->sentinel ?
-						NULL : previous;
-					*item = node;
-					return true;
-				}
-
-				size_t slot = iter->slot++;
-				size_t index =
-					iter->bucket * iter->table->bucket_capacity +
-					slot;
-
-				if (level->filter_tags[index] == EMPTY_METADATA)
-					continue;
-
-				const struct htable_list *list =
-					&level->slots[index].list;
-
-				iter->sentinel = &list->sentinel;
-				iter->next_node = list->tail;
-			}
-			iter->bucket++;
-			iter->slot = 0;
-		}
-
-		iter->level++;
-		iter->bucket = 0;
-		iter->slot = 0;
-	}
-
-	return false;
-}
-
-static const struct htable_iter_ops htable_multitable_iter_ops = {
-	.next = htable_multitable_iter_next_impl,
+	struct htable_table *table;
+	u32 hash;
 };
 
 /**
- * htable_multitable_iter_init - Initialize iteration over a multitable
- * @iter: Iterator storage
- * @table: Multitable to traverse
+ * htable_multitable_iter_init - Initialize a hash-table match lookup
+ * @table: Hash table to search
+ * @hash: Hash value to find
  *
- * Returned items are the linked htable_list_node pointers.
- * The table must not be modified during iteration.
+ * The table backend is keyed by hash, so each query has at most one match.
  */
-static inline void htable_multitable_iter_init(
-	struct htable_multitable_iter *iter,
-	const FilteredMultiTable *table)
+static inline struct htable_multitable_iter
+htable_multitable_iter_init(struct htable_table *table, u32 hash)
 {
-	iter->table = table;
-	iter->level = 0;
-	iter->bucket = 0;
-	iter->slot = 0;
-	iter->next_node = NULL;
-	iter->sentinel = NULL;
-	htable_iter_init(&iter->base, &htable_multitable_iter_ops);
+	struct htable_multitable_iter iter = {
+		.table = table,
+		.hash = hash,
+	};
+
+	return iter;
 }
 
-static inline bool htable_multitable_iter_next(
-	struct htable_multitable_iter *iter, const void **item)
+/*
+ * The caller must hold rcu_read_lock() while retrieving and using a match.
+ */
+static inline struct htable_table_node *
+htable_multitable_iter_get_first_match(struct htable_multitable_iter *iter)
 {
-	return htable_iter_next(&iter->base, item);
+	return htable_table_lookup_rcu(iter->table, iter->hash);
 }
+
+static inline struct htable_table_node *
+htable_multitable_iter_get_next_match(struct htable_multitable_iter *iter)
+{
+	(void)iter;
+	return NULL;
+}
+
+#define htable_multitable_for_each(table,hash,ptr) \
+	for(\
+		struct htable_multitable_iter it = htable_multitable_iter_init(table, hash)\
+		;NULL != (ptr = htable_multitable_iter_get_first_match(&it))\
+		;htable_multitable_iter_get_next_match(&it)\
+	)
 
 #endif

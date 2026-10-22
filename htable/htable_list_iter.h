@@ -8,55 +8,52 @@
 #ifndef HTABLE_LIST_ITER_H
 #define HTABLE_LIST_ITER_H
 
-#include "htable_iter.h"
 #include "htable_list.h"
 
 struct htable_list_iter {
-	struct htable_iter base;
 	struct htable_list *list;
+	unsigned int hash;
 	struct htable_list_node *next;
 };
 
-static inline bool htable_list_iter_next_impl(struct htable_iter *base,
-					      const void **item)
-{
-	struct htable_list_iter *iter =
-		container_of(base, struct htable_list_iter, base);
-	struct htable_list_node *node = iter->next;
-
-	if (!node)
-		return false;
-
-	iter->next = node->pprev == &iter->list->sentinel ?
-		NULL : node->pprev;
-	*item = node;
-	return true;
-}
-
-static const struct htable_iter_ops htable_list_iter_ops = {
-	.next = htable_list_iter_next_impl,
-};
-
 /**
- * htable_list_iter_init - Initialize iteration over a list
- * @iter: Iterator storage
- * @list: List to traverse
+ * htable_list_iter_init - Initialize iteration over matching list nodes
+ * @list: List to search
+ * @hash: Hash value to match
  *
- * Nodes are returned from tail to head because the list stores predecessor
- * links only. The list must not be modified during iteration.
+ * Nodes are returned from tail to head. The list must not be modified during
+ * iteration.
  */
-static inline void htable_list_iter_init(struct htable_list_iter *iter,
-					 struct htable_list *list)
+static inline struct htable_list_iter
+htable_list_iter_init(struct htable_list *list, unsigned int hash)
 {
-	iter->list = list;
-	iter->next = list->tail;
-	htable_iter_init(&iter->base, &htable_list_iter_ops);
+	struct htable_list_iter iter = {
+		.list = list,
+		.hash = hash,
+		.next = htable_list_get_first_match(list, hash),
+	};
+
+	return iter;
 }
 
-static inline bool htable_list_iter_next(struct htable_list_iter *iter,
-					 const void **item)
+static inline struct htable_list_node *
+htable_list_iter_get_first_match(const struct htable_list_iter *iter)
 {
-	return htable_iter_next(&iter->base, item);
+	return iter->next;
 }
+
+static inline struct htable_list_node *
+htable_list_iter_get_next_match(struct htable_list_iter *iter)
+{
+	iter->next = htable_list_get_next_match(iter->next, iter->hash);
+	return iter->next;
+}
+
+#define htable_list_for_each(list,hash,ptr) \
+	for(\
+		struct htable_list_iter it = htable_list_iter_init(list, hash)\
+		;NULL != (ptr = htable_list_iter_get_first_match(&it))\
+		;htable_list_iter_get_next_match(&it)\
+	)
 
 #endif
