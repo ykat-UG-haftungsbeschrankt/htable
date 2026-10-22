@@ -15,6 +15,7 @@
 
 #  include <stdint.h>
 #  include <stdbool.h>
+typedef int64_t ssize_t;
 typedef uint64_t usize;
 typedef int64_t cycles_t;
 typedef int64_t s64;

@@ -22,11 +22,13 @@
 #endif
 
 typedef u64 swar_t;
+typedef u64 swar64_t;
 typedef u64 swar_slots_t;
 typedef u32 swar_hash_t;
 typedef u32 swar_bucket_t;
 typedef u8 swar_slot_offset_t;
 typedef u8 swar_fingerprint_t;
+typedef ssize_t swar_offset_t;
 
 #if SWAR_HAS_U128
 typedef unsigned __int128 swar_u128_t;

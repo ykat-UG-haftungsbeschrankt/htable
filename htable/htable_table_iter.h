@@ -9,13 +9,25 @@
 #define HTABLE_TABLE_ITER_H
 
 #include "htable_types.h"
-#include "htable_table.h"
+#include "htable_table_bucket.h"
 
 struct htable_table_iter {
 	struct htable_table *table;
-	u32 hash;
-	bool first_match_pending;
+	swar_hash_t hash;
+	struct htable_list_node *node;
 };
+
+/*
+ * The caller must hold rcu_read_lock() while retrieving and using a match.
+ */
+static inline struct htable_table_node *
+htable_table_iter_get_first_match(struct htable_table *table, swar_hash_t hash)
+{
+	return htable_table_get_first_match(
+		 table
+		,hash
+	);
+}
 
 /**
  * htable_table_iter_init - Initialize a hash-table match lookup
@@ -25,41 +37,34 @@ struct htable_table_iter {
  * The table backend is keyed by hash, so each query has at most one match.
  */
 static inline struct htable_table_iter
-htable_table_iter_init(struct htable_table *table, u32 hash)
+htable_table_iter_init(struct htable_table *table, swar_hash_t hash)
 {
 	struct htable_table_iter iter = {
 		.table = table,
 		.hash = hash,
-		.first_match_pending = true,
+		.node = htable_table_iter_get_first_match(table,hash)
 	};
 
 	return iter;
 }
 
-/*
- * The caller must hold rcu_read_lock() while retrieving and using a match.
- */
-static inline struct htable_table_node *
-htable_table_iter_get_first_match(struct htable_table_iter *iter)
+static inline struct htable_list_node *
+htable_table_iter_get_current_match(const struct htable_table_iter *iter)
 {
-	if (!iter->first_match_pending)
-		return NULL;
-
-	iter->first_match_pending = false;
-	return htable_table_lookup_rcu(iter->table, iter->hash);
+	return iter->node;
 }
 
 static inline struct htable_table_node *
 htable_table_iter_get_next_match(struct htable_table_iter *iter)
 {
-	iter->first_match_pending = false;
-	return NULL;
+	iter->node = htable_list_get_next_match(iter->node, iter->hash);
+	return iter->node;
 }
 
 #define htable_table_for_each(table,hash,ptr) \
 	for(\
 		struct htable_table_iter it = htable_table_iter_init(table, hash)\
-		;NULL != (ptr = htable_table_iter_get_first_match(&it))\
+		;NULL != (ptr = htable_table_iter_get_current_match(&it))\
 		;htable_table_iter_get_next_match(&it)\
 	)
 
