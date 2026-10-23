@@ -121,11 +121,18 @@ static __always_inline swar_slot_offset_t swar_get_count_zero64(u64 values,
 	return 8 - swar_get_count_set64(values, pattern);
 }
 
-static __always_inline swar_slot_offset_t swar_set_slot(swar64_t *swar,
-							 swar_slot_offset_t slot,
-							 u8 pattern)
+static __always_inline swar64_t swar_clear_slot64(swar64_t swar,
+							 swar_slot_offset_t slot)
 {
-	return *swar |= ((swar64_t)pattern) << (slot << 3);
+	return swar & ~((swar64_t)0xFF << (slot << 3));
+}
+
+static __always_inline swar64_t swar_set_slot64(swar64_t swar,
+							 swar_slot_offset_t slot,
+							 swar_slot_t pattern)
+{
+	swar = swar_clear_slot64(swar,slot);
+	return swar | ((swar64_t)pattern) << (slot << 3);
 }
 
 #endif

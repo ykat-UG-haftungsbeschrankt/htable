@@ -46,7 +46,7 @@ static __always_inline swar_fingerprint_t swar_get_key32(swar_hash_t key)
  * @target: Byte value to match
  * @returns: Mask with the high bit set for each matching byte
  */
-static __always_inline u32 swar_match32(u32 values, u8 target)
+static __always_inline u32 swar_match32(swar32_t values, u8 target)
 {
 	u32 xor_result = values ^ (target * 0x01010101U);
 
@@ -65,7 +65,7 @@ static __always_inline swar_slot_offset_t swar_find_first_set32(u32 values,
 {
 	u32 matches = swar_match32(values, pattern);
 
-	return matches ? __builtin_ctz(matches) >> 3 : 4;
+	return matches ? __builtin_ctz(matches) >> 3 : -1;
 }
 
 /**
@@ -79,7 +79,7 @@ static __always_inline swar_slot_offset_t swar_find_first_zero32(u32 values,
 {
 	u32 nonmatches = 0x80808080U & ~swar_match32(values, pattern);
 
-	return nonmatches ? __builtin_ctz(nonmatches) >> 3 : 4;
+	return nonmatches ? __builtin_ctz(nonmatches) >> 3 : -1;
 }
 
 /**
@@ -104,6 +104,20 @@ static __always_inline swar_slot_offset_t swar_get_count_zero32(u32 values,
 								 u8 pattern)
 {
 	return 4 - swar_get_count_set32(values, pattern);
+}
+
+static __always_inline swar32_t swar_clear_slot32(swar32_t swar,
+							 swar_slot_offset_t slot)
+{
+	return swar & ~((swar32_t)0xFF << (slot << 3));
+}
+
+static __always_inline swar32_t swar_set_slot32(swar32_t swar,
+							 swar_slot_offset_t slot,
+							 swar_slot_t pattern)
+{
+	swar = swar_clear_slot32(swar,slot);
+	return swar | ((swar32_t)pattern) << (slot << 3);
 }
 
 #endif

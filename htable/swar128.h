@@ -67,7 +67,7 @@ static __always_inline swar_u128_t swar_match128(swar_u128_t values, u8 target)
  * swar_find_first_set128 - Find the first byte equal to a pattern
  * @values: Sixteen packed bytes
  * @pattern: Byte pattern to match
- * @returns: Byte index, or sixteen if no byte matches
+ * @returns: Byte index, or -1 if no byte matches
  */
 static __always_inline swar_slot_offset_t swar_find_first_set128(
 	swar_u128_t values, u8 pattern)
@@ -87,14 +87,14 @@ static __always_inline swar_slot_offset_t swar_find_first_set128(
 	if (matches)
 		return __builtin_ctzll(matches) >> 3;
 	matches = swar_match64(high, pattern);
-	return matches ? 8 + (__builtin_ctzll(matches) >> 3) : 16;
+	return matches ? 8 + (__builtin_ctzll(matches) >> 3) : -1;
 }
 
 /**
  * swar_find_first_zero128 - Find the first byte not equal to a pattern
  * @values: Sixteen packed bytes
  * @pattern: Byte pattern to compare
- * @returns: Byte index, or sixteen if every byte matches
+ * @returns: Byte index, or -1 if every byte matches
  */
 static __always_inline swar_slot_offset_t swar_find_first_zero128(
 	swar_u128_t values, u8 pattern)
@@ -114,7 +114,7 @@ static __always_inline swar_slot_offset_t swar_find_first_zero128(
 	if (nonmatches)
 		return __builtin_ctzll(nonmatches) >> 3;
 	nonmatches = 0x8080808080808080ULL & ~swar_match64(high, pattern);
-	return nonmatches ? 8 + (__builtin_ctzll(nonmatches) >> 3) : 16;
+	return nonmatches ? 8 + (__builtin_ctzll(nonmatches) >> 3) : -1;
 }
 
 /**
@@ -150,6 +150,20 @@ static __always_inline swar_slot_offset_t swar_get_count_zero128(
 	swar_u128_t values, u8 pattern)
 {
 	return 16 - swar_get_count_set128(values, pattern);
+}
+
+static __always_inline swar128_t swar_clear_slot128(swar128_t swar,
+							 swar_slot_offset_t slot)
+{
+	return swar & ~((swar128_t)0xFF << (slot << 3));
+}
+
+static __always_inline swar128_t swar_set_slot128(swar128_t swar,
+							 swar_slot_offset_t slot,
+							 swar_slot_t pattern)
+{
+	swar = swar_clear_slot128(swar,slot);
+	return swar | ((swar128_t)pattern) << (slot << 3);
 }
 
 #endif
