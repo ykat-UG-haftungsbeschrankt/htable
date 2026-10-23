@@ -5,110 +5,262 @@
  * free of charge, without warranty of any kind.
  */
 
-#ifndef HTABLE_TABLE_H
-#define HTABLE_TABLE_H
+#ifndef htable_table_bucket_BUCKET_H
+#define htable_table_bucket_BUCKET_H
 
-struct htable_table;
+#include "htable_types.h"
+#include "htable_list.h"
+#include "htable_list_iter.h"
+#include "swar.h"
 
-struct htable_table_node {
-	u32 hash;
-	struct rhash_head hash_node;
-	struct htable_table *table;
+struct htable_table_index {
+	swar_slots_t index;
+	swar_slots_t list_index[8];
 };
 
-struct htable_table {
-	struct rhashtable hash;
+struct htable_table_bucket{
+	struct htable_list list[8];
+	struct htable_list overflow;
 };
 
-#define HTABLE_TABLE_INIT { .hash = {} }
-
-static const struct rhashtable_params htable_table_params = {
-	.key_len = sizeof(u32),
-	.key_offset = offsetof(struct htable_table_node, hash),
-	.head_offset = offsetof(struct htable_table_node, hash_node),
-	.automatic_shrinking = true,
+struct htable_table_node{
+	struct htable_list_node node;
 };
 
-static inline void htable_table_node_init(struct htable_table_node *node,
-					  u32 hash)
-{
-	node->hash = hash;
-	WRITE_ONCE(node->table, NULL);
+struct htable_table{
+	struct htable_table_index  *index;
+	struct htable_table_bucket *buckets;
+	usize                      total_entries;
+};
+
+static inline bool htable_table_init(
+	 struct htable_table *table
+	,void   *buffer
+	,usize buffer_size
+	,usize entries_per_bucket
+	,usize total_entries
+){
+	const usize bucket_count = total_entries/8;
+
+	if (buffer_size < 
+		  ((sizeof(struct htable_table_index) * bucket_count)
+		+ (sizeof(struct htable_table_bucket) * bucket_count))
+	){
+		return false;
+	}
+
+	table->index = buffer;
+	table->buckets = (void *)(table->index + bucket_count);
+	table->total_entries = total_entries;
+
+	return true;
 }
 
-static inline int htable_table_init(struct htable_table *table)
-{
-	return rhashtable_init(&table->hash, &htable_table_params);
-}
-
-/*
- * Call only after users have stopped accessing the table and all entries
- * have been removed. Use synchronize_rcu() before freeing removed nodes.
- */
 static inline void htable_table_deinit(struct htable_table *table)
 {
-	rhashtable_destroy(&table->hash);
 }
 
-/*
- * The hash is the key, so duplicate hashes return -EEXIST. The table grows
- * automatically; callers must serialize operations on the same node.
- */
-static inline int htable_table_add(struct htable_table *table,
-				   struct htable_table_node *node)
-{
-	int ret;
-
-	if (READ_ONCE(node->table))
-		return -EALREADY;
-
-	ret = rhashtable_lookup_insert_fast(&table->hash, &node->hash_node,
-					    htable_table_params);
-	if (!ret)
-		WRITE_ONCE(node->table, table);
-
-	return ret;
+static inline u8 htable_table_get_bucket_index(
+	struct htable_table *table,
+	unsigned int hash
+){
+	return hash % (table->total_entries / 8);
 }
 
-/* The caller must hold rcu_read_lock() and keep it while using the result. */
-static inline struct htable_table_node *
-htable_table_lookup_rcu(struct htable_table *table, u32 hash)
-{
-	return rhashtable_lookup(&table->hash, &hash, htable_table_params);
+static inline u8 htable_table_get_bucket_hash(
+	struct htable_table *table,
+	unsigned int hash
+){
+	return hash % (table->total_entries / 8);
 }
 
-static inline struct htable_table *
-htable_table_get_by_node(struct htable_table_node *node)
-{
-	return READ_ONCE(node->table);
+static inline void
+htable_table_add(
+	 struct htable_table *table
+	,struct htable_table_node *node
+){
+	struct htable_list *list = NULL;
+	swar_hash_t hash = node->node.hash;
+	swar_bucket_t sbucket = swar_get_bucket(hash);
+	swar_fingerprint_t skey = swar_get_key(hash);
+	struct htable_table_index *index = &table->index[sbucket];
+	struct htable_table_bucket *bucket = &table->buckets[sbucket];
+	swar_offset_t list_index_offset = -1;
+	swar_offset_t key = swar_find_first_set64(index->index,skey);
+	if(key != -1){
+		list_index_offset = swar_find_first_set64(
+			 index->list_index[key]
+			,skey
+		);
+		if(list_index_offset != -1){
+			list = &bucket->list[key];
+			goto insert;
+		}
+	}else{
+		key = swar_find_first_set(index->list_index,8*8,skey);
+		if(key != -1){
+			list_index_offset = key & 0x7;
+			key = (key >> 3);
+			swar_set_slot(index->index, key, skey);
+			list = &bucket->list[key];
+			goto insert;
+		}
+	}
+	key = swar_find_first_zero(index->list_index,8*8,skey);
+	if(key != -1){
+		list_index_offset = key & 0x7;
+		key = (key >> 3);
+		swar_set_slot(index->index, key, skey);
+		swar_set_slot(&index->list_index[key], list_index_offset, skey);
+		list = &bucket->list[key];
+	}else{
+		list = &bucket->overflow;
+	}
+
+insert:
+	htable_list_add(
+		 list
+		,&node->node
+	);
 }
 
-static inline int
-__htable_table_delete(struct htable_table *table,
-		      struct htable_table_node *node)
-{
-	int ret;
+static inline struct htable_table *htable_table_get_by_node(
+	struct htable_table_node *node
+){
+	while (likely(node->pprev))
+		node = node->pprev;
 
-	if (READ_ONCE(node->table) != table)
-		return -ENOENT;
-
-	ret = rhashtable_remove_fast(&table->hash, &node->hash_node,
-				     htable_table_params);
-	if (!ret)
-		WRITE_ONCE(node->table, NULL);
-
-	return ret;
+	return container_of(node, struct htable_table, sentinel);
 }
 
-static inline int htable_table_delete(struct htable_table_node *node)
-{
+static inline void
+__htable_table_del(
+	struct htable_table *table,
+	struct htable_table_node *node
+){
+	struct htable_list *list = NULL;
+	swar_hash_t hash = node->node.hash;
+	swar_bucket_t sbucket = swar_get_bucket(hash);
+	swar_fingerprint_t skey = swar_get_key(hash);
+	struct htable_table_index *index = &table->index[sbucket];
+	struct htable_table_bucket *bucket = &table->buckets[sbucket];
+	swar_offset_t list_index_offset = -1;
+	swar_offset_t key = swar_find_first_set64(index->index,skey);
+	if(key != -1){
+		list_index_offset = swar_find_first_set64(
+			 index->list_index[key]
+			,skey
+		);
+		if(list_index_offset != -1){
+			htable_list_for_each(&bucket->list[key],hash,it){
+				if(it.node == node){
+					list = &bucket->list[key];
+					goto delete;
+				}
+			}
+		}
+	}else{
+		key = swar_find_first_set(index->list_index,8*8,skey);
+		if(key != -1){
+			list_index_offset = key & 0x7;
+			key = (key >> 3);
+			swar_set_slot(index->index, key, skey);
+			htable_list_for_each(&bucket->list[key],hash,it){
+				if(it.node == node){
+					list = &bucket->list[key];
+					goto delete;
+				}
+			}
+		}
+	}
+	htable_list_for_each(&bucket->overflow,hash,it){
+		if(it.node == node){
+			list = &bucket->overflow;
+			goto delete;
+		}
+	}
+	return;
+delete:
+	__htable_list_del(list, node);
+	if(list_index_offset != -1){
+		htable_list_for_each(list,hash,it){
+			if(swar_get_key(it.node->hash) == skey){
+				return;
+			}
+		}
+		swar_set_slot(
+			 &index->list_index[key]
+			,list_index_offset
+			,SWAR_SLOT_EMPTY_SIG
+		);
+	}
+}
+
+
+static inline void
+htable_table_del(
+	struct htable_table_node *node
+){
 	struct htable_table *table = htable_table_get_by_node(node);
-	return __htable_table_delete(table, node);
+	__htable_table_del(table, node);
 }
 
-static inline bool htable_table_resize(struct htable_table *table,size_t size)
-{
-	return !rhashtable_resize(&table->hash, size, htable_table_params);
+static inline struct htable_list_node *
+htable_table_get_first_match(
+	 struct htable_table *table
+	,unsigned int hash
+){
+	swar_bucket_t sbucket = swar_get_bucket(hash);
+	swar_fingerprint_t skey = swar_get_key(hash);
+	struct htable_table_index *index = &table->index[sbucket];
+	struct htable_table_bucket *bucket = &table->buckets[sbucket];
+	swar_offset_t key = swar_find_first_set64(index->index,skey);
+	if(key != -1){
+		if(swar_find_first_set64(
+			 index->list_index[key]
+			,skey
+		) != -1){
+			htable_list_for_each(&bucket->list[key],hash,it){
+				if(it.node->hash == hash){
+					return it.node;
+				}
+			}
+		}
+	}else{
+		key = swar_find_first_set(index->list_index,8*8,skey);
+		if(key != -1){
+			key = (key >> 3);
+			swar_set_slot(index->index, key, skey);
+			htable_list_for_each(&bucket->list[key],hash,it){
+				if(it.node->hash == hash)
+					return it.node;
+			}
+		}
+	}
+	htable_list_for_each(&bucket->overflow,hash,it){
+		if(it.node->hash == hash)
+			return it.node;
+	}
+	return NULL;
 }
 
-#endif /* HTABLE_TABLE_H */
+static inline bool
+htable_table_has(
+	struct htable_table *table,
+	swar_hash_t hash
+){
+	return NULL != htable_table_get_first_match(
+		table,
+		hash
+	);
+}
+
+static inline struct htable_list_node *
+htable_table_get_next_match(
+	struct htable_list_node *node
+	,swar_hash_t hash
+){
+	return htable_list_get_next_match(node, hash);
+}
+
+#endif /* htable_table_bucket_BUCKET_H */
