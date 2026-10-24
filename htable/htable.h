@@ -130,7 +130,7 @@ bool htable_init(
 	usize entries_per_bucket,
 	usize total_entries
 ){
-	htable_index_init(&htable->index);
+	__htable_index_node_init(&htable->index);
 	htable_stats_init(&htable->stats,name);
 	htable_list_init(&htable->list);
 	htable->table = (struct htable_table){0};
@@ -149,7 +149,7 @@ bool htable_init(
 	return true;
 }
 void htable_deinit(struct htable *htable){
-	htable_index_deinit(&htable->index);
+	__htable_index_node_deinit(&htable->index);
 	htable_stats_deinit(&htable->stats);
 	htable_list_deinit(&htable->list);
 	htable_table_deinit(&htable->table);
