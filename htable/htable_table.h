@@ -178,6 +178,7 @@ static inline void htable_table_free(struct htable_table *table)
 
 static inline void htable_table_deinit(struct htable_table *table)
 {
+	(void)table;
 }
 
 static inline usize htable_table_get_bucket_index(
@@ -218,7 +219,7 @@ htable_table_add(
 			goto insert;
 		}
 	}else{
-		key = swar_find_first_set(index->list_index,8*8,slot_key);
+		key = swar_find_first_set((const u8 *)index->list_index, 8 * 8, slot_key);
 		if(key != -1){
 			list_index_offset = key & 0x7;
 			key = (key >> 3);
@@ -246,15 +247,6 @@ insert:
 		,&node->node
 	);
 	return true;
-}
-
-static inline struct htable_table *htable_table_get_by_node(
-	struct htable_table_node *node
-){
-	while (likely(node->pprev))
-		node = node->pprev;
-
-	return container_of(node, struct htable_table, sentinel);
 }
 
 static inline void
@@ -285,7 +277,7 @@ __htable_table_del(
 			}
 		}
 	}else{
-		key = swar_find_first_set(index->list_index,8*8,slot_key);
+		key = swar_find_first_set((const u8 *)index->list_index, 8 * 8, slot_key);
 		if(key != -1){
 			list_index_offset = key & 0x7;
 			key = (key >> 3);
@@ -324,9 +316,9 @@ delete:
 
 static inline void
 htable_table_del(
+	struct htable_table *table,
 	struct htable_table_node *node
 ){
-	struct htable_table *table = htable_table_get_by_node(node);
 	__htable_table_del(table, node);
 }
 
@@ -353,7 +345,7 @@ htable_table_get_first_match(
 			}
 		}
 	}else{
-		key = swar_find_first_set(index->list_index,8*8,slot_key);
+		key = swar_find_first_set((const u8 *)index->list_index, 8 * 8, slot_key);
 		if(key != -1){
 			key = (key >> 3);
 			index->index = swar_set_slot64(index->index, key, slot_key);

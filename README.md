@@ -36,6 +36,36 @@ The standalone SWAR suite checks byte masks, first-match and count helpers,
 and the 32-, 64-, and 128-bit variants, including the portable 128-bit
 fallback.
 
+## Performance benchmarks
+
+Build and run both benchmark suites with:
+
+```sh
+make benchmark
+```
+
+The suites can also be built and run separately:
+
+```sh
+make htable-bench
+./tests/htable-bench
+
+make linux-hashtable-bench
+./tests/linux-hashtable-bench
+```
+
+The htable benchmark exercises the high-level `hash_init`/`hash_add`/`hash_del`
+API with the SWAR table backend. The Linux benchmark includes
+`<linux/hashtable.h>` directly from the configured kernel-header tree and runs
+as a userspace process; it does not load a kernel module. Set `KDIR` if the
+matching prepared kernel headers are not available at the default path.
+
+Both programs emit CSV rows for insertion, successful lookup, unsuccessful
+lookup, and deletion at 1,000, 10,000, and 100,000 entries. They use 128
+buckets, giving average occupancies of approximately 7.8, 78.1, and 781.3
+entries per bucket. The custom table's nominal capacity is not a hard limit:
+overflow lists hold additional entries.
+
 `make clean` cleans both the Kbuild outputs and the generated test binaries.
 
 ## Usage terms

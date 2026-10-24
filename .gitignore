@@ -7,6 +7,8 @@
 *.order
 *.cmd
 /htable-test/htable-test
+/tests/htable-bench
+/tests/linux-hashtable-bench
 .tmp_versions/
 .cache.mk
 Module.symvers

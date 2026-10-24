@@ -42,6 +42,7 @@ enum htable_node_flags {
 };
 
 struct htable_node{
+	struct hlist_node hnode;
 	union{
 		struct {
 			u32  flags;
@@ -56,6 +57,7 @@ struct htable_node{
 };
 
 static inline void htable_node_init(struct htable_node *node, swar_hash_t hash){
+	INIT_HLIST_NODE(&node->hnode);
 	node->flags = HTABLE_NODE_FLAGS_INIT;
 	node->hash = hash;
 	node->ptr = NULL;
@@ -63,22 +65,22 @@ static inline void htable_node_init(struct htable_node *node, swar_hash_t hash){
 
 static inline struct htable_node *htable_node_from_hlist_node(struct hlist_node *hnode)
 {
-	return (struct htable_node *)hnode;
+	return container_of(hnode, struct htable_node, hnode);
 }
 
 static inline struct htable_table_node *htable_node_to_htable_table_node(struct htable_node *hnode)
 {
-	return (struct htable_table_node *)hnode;
+	return &hnode->node.table;
 }
 
 static inline struct htable_list_node *htable_node_to_htable_list_node(struct htable_node *hnode)
 {
-	return (struct htable_list_node *)hnode;
+	return &hnode->node.list;
 }
 
 static inline struct htable_node *htable_node_from_htable_list_node(struct htable_list_node *lnode)
 {
-	return (struct htable_node *)lnode;
+	return container_of(lnode, struct htable_node, node.list);
 }
 
 static inline bool htable_node_is_type_table(struct htable_node *hnode)
@@ -101,9 +103,8 @@ static inline bool htable_node_is_hashed(struct htable_node *hnode){
 }
 
 BUILD_BUG_ON(sizeof(struct hlist_head) < sizeof(void*));
-BUILD_BUG_ON(sizeof(struct hlist_node) != sizeof(struct htable_node));
-BUILD_BUG_ON(offsetof(struct htable_list_node, flags) != offsetof(struct htable_table_node, node.flags));
-BUILD_BUG_ON(offsetof(struct htable_list_node, hash) != offsetof(struct htable_table_node, node.hash));
+BUILD_BUG_ON(offsetof(struct htable_node, hnode) != 0);
+BUILD_BUG_ON(sizeof(struct htable_list_node) != sizeof(struct htable_table_node));
 
 
 bool __htable_is_type_list(struct htable *table){
@@ -236,26 +237,20 @@ void htable_add_node(struct htable *table, struct htable_node *node, uintptr_t k
 	}
 }
 
-void htable_remove_node(struct htable_node *node){
+void htable_remove_node(struct htable *table, struct htable_node *node){
 	if(htable_node_is_type_table(node)){
-		struct htable *table = container_of(
-			 htable_table_get_by_node(htable_node_to_htable_table_node(node))
-			,struct htable
-			,table
+		__htable_table_del(
+			&table->table,
+			htable_node_to_htable_table_node(node)
 		);
-		if(!htable_resize_table_add_node(table,node)){
-			htable_resize_table2list(table);
-			htable_resize_list_add_node(table,node);
-		}
 	}else{
-		struct htable *table = container_of(
-			 htable_list_get_by_node(htable_node_to_htable_list_node(node))
-			,struct htable
-			,list
+		__htable_list_del(
+			&table->list,
+			htable_node_to_htable_list_node(node)
 		);
-		// FIXME: Unlink this node instead of adding it to the list again.
-		htable_resize_list_add_node(table,node);
 	}
+	htable_node_set_type_list(node);
+	htable_stats_on_del(&table->stats);
 }
 
 
@@ -324,7 +319,7 @@ static inline void __hash_deinit(struct htable *htable)
 /**
  * hash_add - add an object to a hashtable
  * @hashtable: hashtable to add to
- * @node: the &struct hlist_node of the object to be added
+ * @node: the hnode member of an embedded &struct htable_node
  * @key: the key of the object to be added
  */
 #define hash_add(hashtable, node, key)						\
@@ -350,7 +345,7 @@ static inline void __hash_add(struct htable *htable, struct hlist_node *hnode, h
 /**
  * hash_add_rcu - compatibility alias for hash_add
  * @hashtable: hashtable to add to
- * @node: the &struct hlist_node of the object to be added
+ * @node: the hnode member of an embedded &struct htable_node
  * @key: the key of the object to be added
  *
  * This function does not provide RCU semantics. Callers must externally
@@ -369,9 +364,8 @@ static inline void __hash_add_rcu(struct htable *htable, struct hlist_node *node
  */
 static inline bool hash_hashed(struct hlist_node *hnode)
 {
-	struct htable_node *node = (struct htable_node *)hnode;
+	struct htable_node *node = htable_node_from_hlist_node(hnode);
 	return htable_node_is_hashed(node);
-	//return !hlist_unhashed(&node->hnode);
 }
 
 
@@ -391,44 +385,27 @@ static inline bool __hash_empty(struct htable *htable)
 
 /**
  * hash_del - remove an object from a hashtable
- * @node: &struct hlist_node of the object to remove
+ * @hashtable: hashtable containing the object
+ * @node: the hnode member of an embedded &struct htable_node
  */
-static inline void hash_del(struct hlist_node *hnode)
+static inline void hash_del(struct htable *hashtable, struct hlist_node *hnode)
 {
 	struct htable_node *node = htable_node_from_hlist_node(hnode);
-	struct htable *htable;
 
-	if(htable_node_is_type_table(node)){
-		struct htable_table_node *node = htable_node_to_htable_table_node(node);
-		htable = container_of(
-			 htable_table_get_by_node(node)
-			,struct htable
-			,table
-		);
-		__htable_table_del(&htable->table,node);
-	}else{
-		struct htable_list_node *node = htable_node_to_htable_list_node(node);
-		htable = container_of(
-			 htable_list_get_by_node(node)
-			,struct htable
-			,list
-		);
-		__htable_list_del(&htable->list,node);
-	}
-	htable_node_set_type_list(node);
-	htable_stats_on_del(&htable->stats);
+	htable_remove_node(hashtable, node);
 }
 
 /**
  * hash_del_rcu - compatibility alias for hash_del
- * @node: &struct hlist_node of the object to remove
+ * @hashtable: hashtable containing the object
+ * @node: the hnode member of an embedded &struct htable_node
  *
  * This function does not provide RCU semantics. Callers must externally
  * synchronize readers and writers.
  */
-static inline void hash_del_rcu(struct hlist_node *node)
+static inline void hash_del_rcu(struct htable *hashtable, struct hlist_node *node)
 {
-	hash_del(node);
+	hash_del(hashtable, node);
 }
 
 #endif /* HTABLE_H */
