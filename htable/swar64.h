@@ -12,6 +12,15 @@
 
 typedef u64 swar_match64_t;
 
+static __always_inline swar_hash_t swar_crc32_u64(u32 seed, u64 value)
+{
+#ifdef __KERNEL__
+	return crc32c(seed, &value, sizeof(value));
+#else
+	return _mm_crc32_u64(seed, value);
+#endif
+}
+
 /**
  * swar_get_hash64 - Calculate a CRC32C hash from a 64-bit key
  * @key: Key used as both the CRC32C seed and input value
@@ -19,7 +28,7 @@ typedef u64 swar_match64_t;
  */
 static __always_inline swar_hash_t swar_get_hash64(u64 key)
 {
-	return _mm_crc32_u64(key, key);
+	return swar_crc32_u64((u32)key, key);
 }
 
 /**
@@ -37,19 +46,23 @@ static __always_inline swar_match64_t swar_match64(u64 values, u8 target)
 		 xor_result) & 0x8080808080808080ULL;
 }
 
-#define swar_match64_for_each(matches, it)\
-	for (\
-		  struct{\
-			swar_slots_t matches;\
-			usize slot;\
-		  } it = {\
-			.matches = matches,\
-			.slot = (matches ? __builtin_ctzll(matches) : -1)\
-		  }\
-		; it.slot > -1\
-		; it.matches >>= (it.slot << 3)\
-		, it.slot = (it.matches ? __builtin_ctzll(it.matches) >> 3 : -1)\
-	)
+/**
+ * Iterate over byte lanes set in a swar_match64 mask.
+ * @match_mask: Match mask; evaluated once
+ * @it: Loop variable with signed slot and remaining mask members
+ */
+#define swar_match64_for_each(match_mask, it) \
+	for (struct { \
+		     swar_slots_t remaining; \
+		     swar_slot_offset_t slot; \
+	     } it = { .remaining = (match_mask), .slot = -2 }; \
+	     it.slot == -2 ? \
+		     (it.slot = it.remaining ? \
+		      (__builtin_ctzll(it.remaining) >> 3) : -1, \
+		      it.slot >= 0) : it.slot >= 0; \
+	     it.remaining &= ~(0x80ULL << (it.slot << 3)), \
+		     it.slot = it.remaining ? \
+		      (__builtin_ctzll(it.remaining) >> 3) : -1)
 
 /**
  * swar_find_first_set64 - Find the first byte equal to a pattern
@@ -65,22 +78,10 @@ static __always_inline swar_slot_offset_t swar_find_first_set64(u64 values,
 	return matches ? __builtin_ctzll(matches) >> 3 : -1;
 }
 
-swar_slot_offset_t swar_random_slot64()
+static __always_inline swar_slot_offset_t
+swar_find_first_empty_slot64(swar64_t values)
 {
-	static u8 x = 314159265;
-	x ^= x << 13;
-	return x % 8;
-}
-
-static __always_inline swar_slot_offset_t swar_find_random_set64(
-	swar_match64_t match
-){
-	static u8 rand = 314159265;
-	rand ^= rand << 13;
-    rand ^= rand >> 17;
-    rand ^= rand << 5;
-	int max = __builtin_popcountll(match);
-	return rand % max;
+	return swar_find_first_set64(values, SWAR_SLOT_EMPTY_SIG);
 }
 
 /**
@@ -133,6 +134,12 @@ static __always_inline swar64_t swar_set_slot64(swar64_t swar,
 {
 	swar = swar_clear_slot64(swar,slot);
 	return swar | ((swar64_t)pattern) << (slot << 3);
+}
+
+static __always_inline swar_slot_offset_t swar_is_free_slot64(swar64_t swar,
+							 swar_slot_offset_t slot)
+{
+	return ((swar >> (slot << 3)) & 0xFF) == 0x00 ? 1 : 0;
 }
 
 #endif

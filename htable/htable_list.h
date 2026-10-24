@@ -118,7 +118,7 @@ htable_list_has(
 	unsigned int hash
 ){
 	struct htable_list_node *node = list->tail;
-	while (likely(node != &list->sentinel)) {
+	while (likely(node && node != &list->sentinel)) {
 		if (node->hash == hash)
 			return true;
 		node = node->pprev;
@@ -132,7 +132,7 @@ htable_list_get_first_match(
 	,unsigned int hash
 ){
 	struct htable_list_node *current = list->tail;
-	while (likely(current != &list->sentinel)) {
+	while (likely(current && current != &list->sentinel)) {
 		if (current->hash == hash)
 			return current;
 		current = current->pprev;

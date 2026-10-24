@@ -17,7 +17,11 @@
  */
 static __always_inline swar_hash_t swar_get_hash32(u32 key)
 {
+#ifdef __KERNEL__
+	return crc32c(key, &key, sizeof(key));
+#else
 	return _mm_crc32_u32(key, key);
+#endif
 }
 
 /**
@@ -58,7 +62,7 @@ static __always_inline u32 swar_match32(swar32_t values, u8 target)
  * swar_find_first_set32 - Find the first byte equal to a pattern
  * @values: Four packed bytes
  * @pattern: Byte pattern to match
- * @returns: Byte index, or four if no byte matches
+ * @returns: Byte index, or -1 if no byte matches
  */
 static __always_inline swar_slot_offset_t swar_find_first_set32(u32 values,
 								 u8 pattern)
@@ -68,11 +72,17 @@ static __always_inline swar_slot_offset_t swar_find_first_set32(u32 values,
 	return matches ? __builtin_ctz(matches) >> 3 : -1;
 }
 
+static __always_inline swar_slot_offset_t
+swar_find_first_empty_slot32(swar32_t values)
+{
+	return swar_find_first_set32(values, SWAR_SLOT_EMPTY_SIG);
+}
+
 /**
  * swar_find_first_zero32 - Find the first byte not equal to a pattern
  * @values: Four packed bytes
  * @pattern: Byte pattern to compare
- * @returns: Byte index, or four if every byte matches
+ * @returns: Byte index, or -1 if every byte matches
  */
 static __always_inline swar_slot_offset_t swar_find_first_zero32(u32 values,
 								  u8 pattern)

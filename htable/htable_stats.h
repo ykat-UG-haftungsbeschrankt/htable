@@ -14,7 +14,7 @@ struct htable_stats {
 	const char           *name;
 	usize                entries;
 	usize                size;
-	cycles_t             cycles;
+	s64                  cycles;
 	usize                average;
 	usize                add;
 	usize                remove;
@@ -23,8 +23,8 @@ struct htable_stats {
 	usize                collisions;
 };
 
-#define HTABLE_STATS_INIT {						\
-	.name = __stringify_1(__FILE__)##":"##__stringify_1(__LINE__)##":"#name, \
+#define HTABLE_STATS_INIT(table_name) {					\
+	.name = __FILE__ ":" __stringify(__LINE__) ":" #table_name,		\
 	.entries = 0,							\
 	.size = 0,							\
 	.cycles = 0,							\
@@ -62,31 +62,45 @@ static inline void htable_stats_deinit(struct htable_stats *stats){
 	stats->collisions = 0;
 }
 
-void htable_stats_on_add(struct htable_stats *stats){
+static inline void htable_stats_on_add(struct htable_stats *stats){
 	usize entries = ++stats->entries;
 	stats->average += entries;
 	stats->add++;
 }
 
-void htable_stats_on_del(struct htable_stats *stats){
+static inline void htable_stats_on_del(struct htable_stats *stats){
 	usize entries = --stats->entries;
 	stats->average += entries;
 	stats->remove++;
 }
 
-usize htable_stats_get_average_size(struct htable_stats *stats){
-	return stats->average / (stats->add + stats->remove);
+static inline bool htable_stats_get_average_size(
+	const struct htable_stats *stats,
+	usize *average
+){
+	usize operation_count;
+
+	if (!stats || !average ||
+	    stats->add > (usize)-1 - stats->remove)
+		return false;
+
+	operation_count = stats->add + stats->remove;
+	if (operation_count == 0)
+		return false;
+
+	*average = stats->average / operation_count;
+	return true;
 }
 
-void htable_stats_on_collision(struct htable_stats *stats){
+static inline void htable_stats_on_collision(struct htable_stats *stats){
 	stats->collisions++;
 }
 
-void htable_stats_on_resize(struct htable_stats *stats){
+static inline void htable_stats_on_resize(struct htable_stats *stats){
 	stats->resizes++;
 }
 
-void htable_stats_on_lookup(struct htable_stats *stats){
+static inline void htable_stats_on_lookup(struct htable_stats *stats){
 	stats->lookups++;
 }
 

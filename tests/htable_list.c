@@ -29,6 +29,9 @@ static void test_empty_and_single_node(void)
 	htable_list_init(&list);
 	assert(list.tail == NULL);
 	assert(htable_list_last(&list) == NULL);
+	assert(!htable_list_has(&list, 1));
+	assert(htable_list_get_first_match(&list, 1) == NULL);
+	assert(htable_list_iter_init(&list, 1).node == NULL);
 
 	init_entry(&entry, 1);
 	htable_list_add(&list, &entry.node);
@@ -36,7 +39,7 @@ static void test_empty_and_single_node(void)
 	assert(entry.node.pprev == &list.sentinel);
 	assert(htable_list_get_by_node(&entry.node) == &list);
 
-	htable_list_delete(&entry.node);
+	htable_list_del(&entry.node);
 	assert(list.tail == NULL);
 	assert(entry.node.pprev == NULL);
 }
@@ -59,20 +62,20 @@ static void test_middle_head_and_tail_deletion(void)
 		       (i == 0 ? &list.sentinel : &entries[i - 1].node));
 	}
 
-	htable_list_delete(&entries[1].node);
+	htable_list_del(&entries[1].node);
 	assert(entries[2].node.pprev == &entries[0].node);
 	assert(entries[1].node.pprev == NULL);
 	assert(htable_list_last(&list) == &entries[3].node);
 
-	htable_list_delete(&entries[0].node);
+	htable_list_del(&entries[0].node);
 	assert(entries[2].node.pprev == &list.sentinel);
 	assert(entries[0].node.pprev == NULL);
 
-	htable_list_delete(&entries[3].node);
+	htable_list_del(&entries[3].node);
 	assert(htable_list_last(&list) == &entries[2].node);
 	assert(entries[2].node.pprev == &list.sentinel);
 
-	htable_list_delete(&entries[2].node);
+	htable_list_del(&entries[2].node);
 	assert(htable_list_last(&list) == NULL);
 }
 
@@ -88,7 +91,7 @@ static void test_independent_lists(void)
 		assert(htable_list_get_by_node(&entries[i].node) == &lists[i]);
 	}
 
-	htable_list_delete(&entries[0].node);
+	htable_list_del(&entries[0].node);
 	assert(lists[0].tail == NULL);
 	assert(lists[1].tail == &entries[1].node);
 	assert(htable_list_get_by_node(&entries[1].node) == &lists[1]);

@@ -9,7 +9,7 @@
 #define HTABLE_TABLE_ITER_H
 
 #include "htable_types.h"
-#include "htable_table_bucket.h"
+#include "htable_table.h"
 
 struct htable_table_iter {
 	struct htable_table *table;
@@ -18,9 +18,10 @@ struct htable_table_iter {
 };
 
 /*
- * The caller must hold rcu_read_lock() while retrieving and using a match.
+ * Readers and writers must be externally synchronized; this iterator is not
+ * RCU-safe.
  */
-static inline struct htable_table_node *
+static inline struct htable_list_node *
 htable_table_iter_get_first_match(struct htable_table *table, swar_hash_t hash)
 {
 	return htable_table_get_first_match(
@@ -34,7 +35,7 @@ htable_table_iter_get_first_match(struct htable_table *table, swar_hash_t hash)
  * @table: Hash table to search
  * @hash: Hash value to find
  *
- * The table backend is keyed by hash, so each query has at most one match.
+ * A hash may match multiple nodes; iteration returns each matching node.
  */
 static inline struct htable_table_iter
 htable_table_iter_init(struct htable_table *table, swar_hash_t hash)
@@ -54,7 +55,7 @@ htable_table_iter_get_current_match(const struct htable_table_iter *iter)
 	return iter->node;
 }
 
-static inline struct htable_table_node *
+static inline struct htable_list_node *
 htable_table_iter_get_next_match(struct htable_table_iter *iter)
 {
 	iter->node = htable_list_get_next_match(iter->node, iter->hash);

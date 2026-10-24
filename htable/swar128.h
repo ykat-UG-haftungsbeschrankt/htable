@@ -28,7 +28,7 @@ static __always_inline swar_hash_t swar_get_hash128(swar_u128_t key)
 	low = key.low;
 	high = key.high;
 #endif
-	return _mm_crc32_u64(swar_get_hash64(low), high);
+	return swar_crc32_u64(swar_get_hash64(low), high);
 }
 
 /**
@@ -88,6 +88,12 @@ static __always_inline swar_slot_offset_t swar_find_first_set128(
 		return __builtin_ctzll(matches) >> 3;
 	matches = swar_match64(high, pattern);
 	return matches ? 8 + (__builtin_ctzll(matches) >> 3) : -1;
+}
+
+static __always_inline swar_slot_offset_t
+swar_find_first_empty_slot128(swar_u128_t values)
+{
+	return swar_find_first_set128(values, SWAR_SLOT_EMPTY_SIG);
 }
 
 /**
@@ -152,18 +158,38 @@ static __always_inline swar_slot_offset_t swar_get_count_zero128(
 	return 16 - swar_get_count_set128(values, pattern);
 }
 
-static __always_inline swar128_t swar_clear_slot128(swar128_t swar,
-							 swar_slot_offset_t slot)
+static __always_inline swar_u128_t swar_clear_slot128(
+	swar_u128_t swar,
+	swar_slot_offset_t slot
+)
 {
-	return swar & ~((swar128_t)0xFF << (slot << 3));
+#if SWAR_HAS_U128
+	return swar & ~((swar_u128_t)0xFF << (slot << 3));
+#else
+	if (slot < 8)
+		swar.low = swar_clear_slot64(swar.low, slot);
+	else
+		swar.high = swar_clear_slot64(swar.high, slot - 8);
+	return swar;
+#endif
 }
 
-static __always_inline swar128_t swar_set_slot128(swar128_t swar,
-							 swar_slot_offset_t slot,
-							 swar_slot_t pattern)
+static __always_inline swar_u128_t swar_set_slot128(
+	swar_u128_t swar,
+	swar_slot_offset_t slot,
+	swar_slot_t pattern
+)
 {
 	swar = swar_clear_slot128(swar,slot);
-	return swar | ((swar128_t)pattern) << (slot << 3);
+#if SWAR_HAS_U128
+	return swar | ((swar_u128_t)pattern) << (slot << 3);
+#else
+	if (slot < 8)
+		swar.low = swar_set_slot64(swar.low, slot, pattern);
+	else
+		swar.high = swar_set_slot64(swar.high, slot - 8, pattern);
+	return swar;
+#endif
 }
 
 #endif

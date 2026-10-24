@@ -60,6 +60,30 @@ static void test_byte_matching(void)
 			       expected_mask(bytes, slot_count, pattern));
 		}
 	}
+	assert(swar_find_first_empty_slot32((u32)packed) == 0);
+	assert(swar_find_first_empty_slot32(UINT32_MAX) == -1);
+	assert(swar_find_first_empty_slot64(packed) == 0);
+	assert(swar_find_first_empty_slot64(UINT64_MAX) == -1);
+}
+
+static void test_match64_iterator(void)
+{
+	const u64 match_mask =
+		(0x80ULL << 8) | (0x80ULL << 40) | (0x80ULL << 56);
+	const swar_slot_offset_t expected[] = { 1, 5, 7 };
+	size_t count = 0;
+
+	swar_match64_for_each(match_mask, iter) {
+		assert(count < sizeof(expected) / sizeof(expected[0]));
+		assert(iter.slot == expected[count]);
+		count++;
+	}
+	assert(count == 3);
+
+	count = 0;
+	swar_match64_for_each(0, iter)
+		count++;
+	assert(count == 0);
 }
 
 static void test_byte_array_operations(void)
@@ -69,16 +93,23 @@ static void test_byte_array_operations(void)
 		0xAA, 0x99, 0xEE, 0xBB, 0xCC, 0xDD, 0x11, 0x22,
 		0x33, 0xAA, 0x44,
 	};
+	const u8 repeated_bytes[8] = {
+		0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA,
+	};
 	size_t count = sizeof(bytes);
 
 	assert(swar_find_first_set(bytes, count, 0xAA) == 1);
-	assert(swar_find_first_set(bytes, count, 0xFE) == count);
+	assert(swar_find_first_set(bytes, count, 0xFE) == -1);
+	assert(swar_find_first_empty_slot(bytes, count) == 2);
 	assert(swar_find_first_zero(bytes, count, 0xAA) == 0);
 	assert(swar_find_first_zero(bytes, count, 0x11) == 1);
+	assert(swar_find_first_zero(repeated_bytes, sizeof(repeated_bytes),
+				    0xAA) == -1);
 	assert(swar_get_count_set(bytes, count, 0xAA) == 4);
 	assert(swar_get_count_zero(bytes, count, 0xAA) == count - 4);
-	assert(swar_find_first_set(bytes, 0, 0xAA) == 0);
-	assert(swar_find_first_zero(bytes, 0, 0xAA) == 0);
+	assert(swar_find_first_set(bytes, 0, 0xAA) == -1);
+	assert(swar_find_first_empty_slot(bytes, 0) == -1);
+	assert(swar_find_first_zero(bytes, 0, 0xAA) == -1);
 	assert(swar_get_count_set(bytes, 0, 0xAA) == 0);
 }
 
@@ -89,23 +120,34 @@ static void test_wide_byte_operations(void)
 	u64 high_mask;
 	swar_u128_t packed;
 	swar_u128_t matches;
+	u8 empty_bytes[16];
+	swar_u128_t empty_packed;
 
 	for (size_t i = 0; i < 16; i++)
 		bytes[i] = (u8)(i + 1);
+	for (size_t i = 0; i < 16; i++)
+		empty_bytes[i] = bytes[i];
 	bytes[2] = 0xAA;
 	bytes[9] = 0xAA;
 	bytes[10] = 0xEE;
 	bytes[15] = 0xAA;
+	empty_bytes[12] = SWAR_SLOT_EMPTY_SIG;
 
 	low_mask = expected_mask(bytes, 8, 0xAA);
 	high_mask = expected_mask(bytes + 8, 8, 0xAA);
 #if SWAR_HAS_U128
 	packed = ((swar_u128_t)pack_bytes(bytes + 8, 8) << 64) |
 		 pack_bytes(bytes, 8);
+	empty_packed = ((swar_u128_t)pack_bytes(empty_bytes + 8, 8) << 64) |
+		       pack_bytes(empty_bytes, 8);
 #else
 	packed.low = pack_bytes(bytes, 8);
 	packed.high = pack_bytes(bytes + 8, 8);
+	empty_packed.low = pack_bytes(empty_bytes, 8);
+	empty_packed.high = pack_bytes(empty_bytes + 8, 8);
 #endif
+	assert(swar_find_first_empty_slot128(packed) == -1);
+	assert(swar_find_first_empty_slot128(empty_packed) == 12);
 	matches = swar_match128(packed, 0xAA);
 #if SWAR_HAS_U128
 	assert((u64)matches == low_mask);
@@ -134,6 +176,22 @@ static void test_wide_byte_operations(void)
 	assert(swar_get_count_zero128(packed, 0xAA) == 13);
 }
 
+static void test_128_bit_slot_updates(void)
+{
+	swar_u128_t slots;
+
+#if SWAR_HAS_U128
+	slots = ~(swar_u128_t)0;
+#else
+	slots.low = UINT64_MAX;
+	slots.high = UINT64_MAX;
+#endif
+	slots = swar_set_slot128(slots, 15, 0x5A);
+	assert(swar_find_first_set128(slots, 0x5A) == 15);
+	slots = swar_clear_slot128(slots, 15);
+	assert(swar_find_first_set128(slots, 0x5A) == -1);
+}
+
 static void test_hash_and_fingerprint_wrappers(void)
 {
 	u32 hash = 0x12345678;
@@ -148,8 +206,10 @@ static void test_hash_and_fingerprint_wrappers(void)
 void test_swar(void)
 {
 	test_byte_matching();
+	test_match64_iterator();
 	test_byte_array_operations();
 	test_wide_byte_operations();
+	test_128_bit_slot_updates();
 	test_hash_and_fingerprint_wrappers();
 }
 

@@ -62,33 +62,8 @@
         {
             "label": "kmod: rebuild and reload",
             "type": "shell",
-            "command": "make clean && make all && (sudo rmmod hello 2>/dev/null; sudo insmod hello.ko)",
+            "command": "make clean && make all && (sudo rmmod htable 2>/dev/null; sudo insmod htable.ko)",
             "problemMatcher": ["$gcc"]
-        },
-        {
-            "label": "kmod: run hashtable benchmark",
-            "type": "shell",
-            "command": "make",
-            "args": ["bench", "NUM=${input:benchNumEntries}", "BITS=${input:benchHashBits}"],
-            "problemMatcher": ["$gcc"],
-            "presentation": {
-                "reveal": "always",
-                "panel": "shared"
-            }
-        }
-    ],
-    "inputs": [
-        {
-            "id": "benchNumEntries",
-            "type": "promptString",
-            "description": "Number of hashtable entries to benchmark",
-            "default": "100000"
-        },
-        {
-            "id": "benchHashBits",
-            "type": "promptString",
-            "description": "log2 of number of hash buckets",
-            "default": "16"
         }
     ]
 }

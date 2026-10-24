@@ -8,8 +8,7 @@ development.
 | Component | Purpose |
 | --- | --- |
 | `htable/htable_list.h` | Hash-aware predecessor list for handling colliding entries |
-| `htable/htable_table.h` | RCU-aware wrapper around Linux `rhashtable` |
-| `htable/htable_multitable.h` | Filtered, multi-level table with configurable sizing |
+| `htable/htable_table.h` | Caller-buffered SWAR bucket table with overflow lists |
 | `htable/swar*.h` | SWAR byte matching and CRC32C helpers for 32-, 64-, and 128-bit values |
 | `tests/` | List, table, iterator-macro, and SWAR tests |
 
@@ -30,10 +29,9 @@ To force both test binaries to rebuild:
 make -B htable-test swar-test
 ```
 
-The htable suite covers list operations, hash-match iteration, the
-`htable_for_each` family of macros, and multi-level table collisions. Its
-userspace table-iterator checks use a small lookup stub; they do not replace
-testing the kernel `rhashtable` and RCU behavior in a kernel environment.
+The htable suite currently covers list operations, list-match iteration, and
+basic index/statistics behavior. It does not validate the kernel module or
+concurrent access to the table backend.
 The standalone SWAR suite checks byte masks, first-match and count helpers,
 and the 32-, 64-, and 128-bit variants, including the portable 128-bit
 fallback.

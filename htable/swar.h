@@ -10,6 +10,14 @@
 
 #include "htable_types.h"
 
+#ifdef __KERNEL__
+#include <linux/crc32c.h>
+#include <linux/string.h>
+#else
+#include <nmmintrin.h>
+#include <string.h>
+#endif
+
 #define SWAR_SLOT_SET_SIG   0x80
 #define SWAR_SLOT_EMPTY_SIG 0x00
 
@@ -24,7 +32,6 @@
 typedef u64 swar_t;
 typedef u64 swar64_t;
 typedef u32 swar32_t;
-typedef __int128 swar128_t;
 typedef u8 swar_slot_t;
 typedef u64 swar_slots_t;
 typedef u32 swar_hash_t;
@@ -41,6 +48,7 @@ typedef struct {
 	u64 high;
 } swar_u128_t;
 #endif
+typedef swar_u128_t swar128_t;
 
 #include "swar32.h"
 #include "swar64.h"
@@ -92,7 +100,7 @@ static __always_inline swar_slots_t swar_match(swar_t values,
 	u64 xor_result;
 	u64 valid_lanes;
 
-	if (slot_count > sizeof(values))
+	if (slot_count < 0 || (size_t)slot_count > sizeof(values))
 		return 0;
 	if (slot_count == 0)
 		return 0;
@@ -110,10 +118,11 @@ static __always_inline swar_slots_t swar_match(swar_t values,
  * @values: Byte array to search
  * @count: Number of bytes in @values
  * @pattern: Byte pattern to match
- * @returns: Index of the first match, or @count if no byte matches
+ * @returns: Index of the first match, or -1 if no byte matches
  */
-static __always_inline size_t swar_find_first_set(const u8 *values,
-						  size_t count, u8 pattern)
+static __always_inline swar_offset_t swar_find_first_set(const u8 *values,
+							 size_t count,
+							 u8 pattern)
 {
 	size_t offset = 0;
 
@@ -123,18 +132,30 @@ static __always_inline size_t swar_find_first_set(const u8 *values,
 
 		memcpy(&packed, values + offset, sizeof(packed));
 		match = swar_find_first_set64(packed, pattern);
-		if (match < sizeof(packed))
-			return offset + match;
+		if (match >= 0)
+			return (swar_offset_t)(offset + (size_t)match);
 		offset += sizeof(packed);
 	}
 
 	while (offset < count) {
 		if (values[offset] == pattern)
-			return offset;
+			return (swar_offset_t)offset;
 		offset++;
 	}
 
-	return count;
+	return -1;
+}
+
+/**
+ * swar_find_first_empty_slot - Find the first empty byte slot
+ * @values: Byte array to search
+ * @count: Number of bytes in @values
+ * @returns: Index of the first empty slot, or -1 if none exists
+ */
+static __always_inline swar_offset_t
+swar_find_first_empty_slot(const u8 *values, size_t count)
+{
+	return swar_find_first_set(values, count, SWAR_SLOT_EMPTY_SIG);
 }
 
 /**
@@ -142,10 +163,13 @@ static __always_inline size_t swar_find_first_set(const u8 *values,
  * @values: Byte array to search
  * @count: Number of bytes in @values
  * @pattern: Byte pattern to compare
- * @returns: Index of the first non-match, or @count if every byte matches
+ * @returns: Index of the first non-match, or -1 if every byte matches
  */
-static __always_inline size_t swar_find_first_zero(const u8 *values,
-						   size_t count, u8 pattern)
+static __always_inline swar_offset_t swar_find_first_zero(
+	const u8 *values,
+	size_t count,
+	u8 pattern
+)
 {
 	size_t offset = 0;
 
@@ -157,17 +181,19 @@ static __always_inline size_t swar_find_first_zero(const u8 *values,
 		nonmatches = 0x8080808080808080ULL &
 			     ~swar_match64(packed, pattern);
 		if (nonmatches)
-			return offset + (__builtin_ctzll(nonmatches) >> 3);
+			return (swar_offset_t)(
+				offset + (__builtin_ctzll(nonmatches) >> 3)
+			);
 		offset += sizeof(packed);
 	}
 
 	while (offset < count) {
 		if (values[offset] != pattern)
-			return offset;
+			return (swar_offset_t)offset;
 		offset++;
 	}
 
-	return count;
+	return -1;
 }
 
 /**

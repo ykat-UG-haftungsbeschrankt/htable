@@ -104,4 +104,4 @@ module_init(htable_module_init);
 module_exit(htable_module_exit);
 
 MODULE_LICENSE("GPL");
-MODULE_DESCRIPTION("Resizable RCU-safe htable support");
+MODULE_DESCRIPTION("Caller-synchronized htable support");
