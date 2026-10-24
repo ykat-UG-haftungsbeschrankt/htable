@@ -51,7 +51,7 @@ static bool run_htable_size(size_t entry_count)
 	const size_t entries_per_bucket = 8;
 	size_t bucket_count;
 	size_t total_entries;
-	const unsigned int hash_bits = HTABLE_BENCH_HASH_BITS;
+	const unsigned int hash_bits = HTABLE_BENCH_HASH_BITS + 7U;
 	usize buffer_size;
 	void *buffer = NULL;
 	struct htable_bench_entry *entries = NULL;

@@ -45,29 +45,23 @@ static inline bool htable_bench_bucket_config(
 	if (entries_per_bucket >
 	    (size_t)-1 / HTABLE_BENCH_BUCKET_COUNT)
 		return 0;
-	if ((u64)entry_count >
-	    ((((u64)0xFFFFFFFFU >> HTABLE_BENCH_HASH_BITS) + 1U) / 2U))
-		return 0;
 	*bucket_count = HTABLE_BENCH_BUCKET_COUNT;
 	return 1;
 }
 
 /*
- * Keep Linux's bucket selection in the low bits while retaining a unique
- * full-width hash for the custom table's exact-match scan.
+ * Userspace equivalent of Linux hash_32(key, bits).
  */
 static inline u32 htable_bench_hash_32(u32 key, unsigned int bits)
 {
 	u32 product = key * 0x61C88647U;
-	u32 bucket;
 
 	if (bits == 0)
-		return key;
+		return 0;
 	if (bits >= 32)
 		return product;
 
-	bucket = product >> (32U - bits);
-	return (key << bits) | bucket;
+	return product >> (32U - bits);
 }
 
 static inline u64 htable_bench_now_ns(void)

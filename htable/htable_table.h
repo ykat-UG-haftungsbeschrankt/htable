@@ -185,7 +185,7 @@ static inline usize htable_table_get_bucket_index(
 	const struct htable_table *table,
 	swar_hash_t hash
 ){
-	return (usize)hash % table->bucket_count;
+	return (usize)swar_get_bucket(hash) % table->bucket_count;
 }
 
 static inline usize htable_table_get_bucket_hash(

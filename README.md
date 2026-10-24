@@ -71,12 +71,12 @@ and load):
 
 | Entries | Backend | Insert | Hit lookup | Miss lookup | Delete |
 | ---: | --- | ---: | ---: | ---: | ---: |
-| 1,000 | htable-table | 10.026 | 22.904 | 31.884 | 13.388 |
-| 1,000 | linux-hashtable | 1.356 | 7.212 | 9.514 | 0.908 |
-| 10,000 | htable-table | 8.958 | 245.917 | 305.895 | 10.824 |
-| 10,000 | linux-hashtable | 1.122 | 130.232 | 307.629 | 1.541 |
-| 100,000 | htable-table | 4.058 | 4,350.640 | 11,970.815 | 17.953 |
-| 100,000 | linux-hashtable | 2.760 | 2,331.218 | 6,151.413 | 1.885 |
+| 1,000 | htable-table | 20.842 | 22.390 | 15.628 | 34.634 |
+| 1,000 | linux-hashtable | 1.311 | 7.237 | 9.649 | 0.908 |
+| 10,000 | htable-table | 25.142 | 30.637 | 63.402 | 42.053 |
+| 10,000 | linux-hashtable | 1.118 | 129.146 | 305.575 | 0.985 |
+| 100,000 | htable-table | 20.673 | 34,699.185 | 57,568.758 | 16,768.921 |
+| 100,000 | linux-hashtable | 6.526 | 2,292.056 | 6,074.032 | 1.460 |
 
 `make clean` cleans both the Kbuild outputs and the generated test binaries.
 
