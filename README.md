@@ -66,6 +66,18 @@ buckets, giving average occupancies of approximately 7.8, 78.1, and 781.3
 entries per bucket. The custom table's nominal capacity is not a hard limit:
 overflow lists hold additional entries.
 
+Example output from one run (nanoseconds per operation; results vary by system
+and load):
+
+| Entries | Backend | Insert | Hit lookup | Miss lookup | Delete |
+| ---: | --- | ---: | ---: | ---: | ---: |
+| 1,000 | htable-table | 10.026 | 22.904 | 31.884 | 13.388 |
+| 1,000 | linux-hashtable | 1.356 | 7.212 | 9.514 | 0.908 |
+| 10,000 | htable-table | 8.958 | 245.917 | 305.895 | 10.824 |
+| 10,000 | linux-hashtable | 1.122 | 130.232 | 307.629 | 1.541 |
+| 100,000 | htable-table | 4.058 | 4,350.640 | 11,970.815 | 17.953 |
+| 100,000 | linux-hashtable | 2.760 | 2,331.218 | 6,151.413 | 1.885 |
+
 `make clean` cleans both the Kbuild outputs and the generated test binaries.
 
 ## Usage terms
